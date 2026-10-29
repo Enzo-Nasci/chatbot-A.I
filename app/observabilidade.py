@@ -114,13 +114,22 @@ def _tokens(message: Any) -> tuple[int, int]:
     return entrada, saida
 
 
-def custo_usd(modelo: str, entrada: int, saida: int) -> float:
+def _precos_do_modelo(modelo: str) -> tuple[float, float] | None:
     precos = PRECO_POR_MILHAO.get(modelo)
-    if precos is None:
-        for chave, valor in PRECO_POR_MILHAO.items():
-            if chave in modelo:
-                precos = valor
-                break
+    if precos is not None:
+        return precos
+    for chave, valor in PRECO_POR_MILHAO.items():
+        if chave in modelo:
+            return valor
+    return None
+
+
+def preco_conhecido(modelo: str) -> bool:
+    return _precos_do_modelo(modelo) is not None
+
+
+def custo_usd(modelo: str, entrada: int, saida: int) -> float:
+    precos = _precos_do_modelo(modelo)
     if precos is None:
         return 0.0
     preco_entrada, preco_saida = precos
@@ -200,10 +209,66 @@ coletor = ColetorChamadas()
 # uvicorn, e as chamadas de modelo acontecem nela. contextvars quebram quando
 # o LangGraph copia o contexto sem este valor.
 _turno_por_thread = threading.local()
+_status_escrita = threading.local()
 
 
 def _turno_da_thread() -> str | None:
     return getattr(_turno_por_thread, "turno_id", None)
+
+
+def limpar_status_escrita() -> None:
+    _status_escrita.status = None
+
+
+def anotar_status_escrita(status: str) -> None:
+    """Erro de escrita prevalece sobre recusa. Sucesso não apaga nenhum dos dois."""
+    atual = getattr(_status_escrita, "status", None)
+    if atual == "erro":
+        return
+    if status == "erro":
+        _status_escrita.status = "erro"
+    elif status == "bloqueado":
+        _status_escrita.status = "bloqueado"
+
+
+def status_escrita_anotado() -> str | None:
+    return getattr(_status_escrita, "status", None)
+
+
+def registrar_chamada_juiz(
+    modelo: str,
+    entrada: int | None,
+    saida: int | None,
+    latencia_ms: int,
+) -> None:
+    """Registra a chamada do juiz de escrita no turno aberto.
+
+    Sem tokens ou sem preço na tabela, o custo fica desconhecido. Não grava 0
+    como se a medição tivesse existido.
+    """
+    turno_id = _turno_da_thread()
+    if not turno_id:
+        return
+    uso_conhecido = entrada is not None and saida is not None
+    if uso_conhecido and preco_conhecido(modelo):
+        custo = custo_usd(modelo, int(entrada), int(saida))
+        indisponivel = False
+    else:
+        custo = None
+        indisponivel = True
+    registro = {
+        "turno_id": turno_id,
+        "modelo": modelo,
+        "no": "juiz_escrita",
+        "tokens_entrada": entrada,
+        "tokens_saida": saida,
+        "custo_usd": custo,
+        "custo_indisponivel": indisponivel,
+        "latencia_ms": latencia_ms,
+        "fallback": False,
+    }
+    with _lock:
+        _chamadas.append(registro)
 
 
 def ligar_coleta() -> None:
@@ -220,8 +285,43 @@ def ligar_coleta() -> None:
     _ligado = True
 
 
+def _totais_do_turno(chamadas: list[dict[str, Any]]) -> dict[str, Any]:
+    tokens_conhecidos = 0
+    teve_token = False
+    token_incompleto = False
+    custos_conhecidos: list[float] = []
+    custo_incompleto = False
+    for chamada in chamadas:
+        entrada = chamada.get("tokens_entrada")
+        saida = chamada.get("tokens_saida")
+        if entrada is None or saida is None:
+            token_incompleto = True
+        else:
+            teve_token = True
+            tokens_conhecidos += int(entrada) + int(saida)
+        if chamada.get("custo_indisponivel") or chamada.get("custo_usd") is None and chamada.get("no") == "juiz_escrita":
+            custo_incompleto = True
+        elif chamada.get("custo_usd") is not None:
+            custos_conhecidos.append(float(chamada["custo_usd"]))
+    if token_incompleto and not teve_token:
+        tokens_total = None
+    else:
+        tokens_total = tokens_conhecidos
+    if custo_incompleto and not custos_conhecidos:
+        custo_total = None
+    else:
+        custo_total = sum(custos_conhecidos)
+    return {
+        "tokens_total": tokens_total,
+        "tokens_indisponivel": token_incompleto,
+        "custo_usd": custo_total,
+        "custo_indisponivel": custo_incompleto,
+    }
+
+
 def abrir_turno() -> str:
     ligar_coleta()
+    limpar_status_escrita()
     turno_id = uuid.uuid4().hex
     _turno_por_thread.turno_id = turno_id
     with _lock:
@@ -240,6 +340,7 @@ def fechar_turno(turno_id: str, session_id: str, rota: str, status: str) -> None
         global _em_andamento
         _em_andamento = max(0, _em_andamento - 1)
         do_turno = [c for c in _chamadas if c["turno_id"] == turno_id]
+        totais = _totais_do_turno(do_turno)
         _turnos.append({
             "id": turno_id,
             "hora": _agora_local(),
@@ -247,8 +348,10 @@ def fechar_turno(turno_id: str, session_id: str, rota: str, status: str) -> None
             "latencia_ms": int((time.perf_counter() - inicio) * 1000),
             "rota": rota or "—",
             "status": status,
-            "tokens_total": sum(c["tokens_entrada"] + c["tokens_saida"] for c in do_turno),
-            "custo_usd": sum(c["custo_usd"] for c in do_turno),
+            "tokens_total": totais["tokens_total"],
+            "tokens_indisponivel": totais["tokens_indisponivel"],
+            "custo_usd": totais["custo_usd"],
+            "custo_indisponivel": totais["custo_indisponivel"],
         })
         while len(_turnos) > LIMITE_TURNOS:
             antigo = _turnos.pop(0)
@@ -256,7 +359,16 @@ def fechar_turno(turno_id: str, session_id: str, rota: str, status: str) -> None
 
 
 def status_do_estado(estado: dict) -> str:
-    """Bloqueio de entrada é o sistema funcionando. Erro fica para a exceção."""
+    """Bloqueio de entrada é o sistema funcionando. Erro fica para a exceção.
+
+    Recusa do juiz de escrita é bloqueado. Timeout, veredito inválido e falha
+    de banco são erro. O bloqueio do guardrail de entrada não vira erro.
+    """
+    anotado = status_escrita_anotado()
+    if anotado == "erro":
+        return "erro"
+    if anotado == "bloqueado":
+        return "bloqueado"
     for nome in estado.get("agentes_chamados") or []:
         if isinstance(nome, str) and nome.startswith("guardrail_entrada:") and nome != "guardrail_entrada:aprovado":
             return "bloqueado"

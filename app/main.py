@@ -8,6 +8,13 @@ from app.routes import chat, monitor
 for _problem in validate_config():
     print(f"[config] ATTENTION: { _problem }") # CORREÇÃO: Erro de digitação
 
+try:
+    from app.juiz_escrita import garantir_esquema
+
+    garantir_esquema()
+except Exception as _esquema_exc:
+    print(f"[juiz_escrita] tabela de idempotência não criada agora: {_esquema_exc}")
+
 app = FastAPI(  
     title="Assessor IA",
     description="Assessor financeiro e de agenda com langchain e langgraph",

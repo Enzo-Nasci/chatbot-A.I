@@ -2,6 +2,7 @@ from typing import Optional, List
 from langchain.tools import tool
 from pydantic import BaseModel, Field
 
+from app.juiz_escrita import proteger_escrita
 from app.tools.db import get_conn
 
 
@@ -35,6 +36,54 @@ class AddEventArgs(BaseModel):
     notes: Optional[str] = Field(default=None, description="Observações adicionais sobre o evento.")
 
 
+def _args_add_event(
+    title: str,
+    source_text: str,
+    start_time: str,
+    end_time: Optional[str],
+    location: Optional[str],
+    notes: Optional[str],
+) -> dict:
+    return {
+        "title": title,
+        "source_text": source_text,
+        "start_time": start_time,
+        "end_time": end_time,
+        "location": location,
+        "notes": notes,
+    }
+
+
+def _gravar_add_event(
+    cur,
+    title: str,
+    source_text: str,
+    start_time: str,
+    end_time: Optional[str],
+    location: Optional[str],
+    notes: Optional[str],
+) -> dict:
+    _garantir_tabela(cur)
+    cur.execute(
+        """
+        INSERT INTO events
+            (title, start_time, end_time, location, notes, source_text)
+        VALUES
+            (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s)
+        RETURNING id, start_time, end_time;
+        """,
+        (title, start_time, end_time, location, notes, source_text),
+    )
+    new_id, start, end = cur.fetchone()
+    return {
+        "status": "ok",
+        "id": new_id,
+        "title": title,
+        "start_time": str(start),
+        "end_time": str(end) if end else None,
+    }
+
+
 @tool("add_event", args_schema=AddEventArgs)
 def add_event(
     title: str,
@@ -45,43 +94,12 @@ def add_event(
     notes: Optional[str] = None,
 ) -> dict:
     """Insere um evento/compromisso na agenda (tabela events) do banco de dados Postgres."""
-    conn = None
-    cur = None
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        _garantir_tabela(cur)
-        cur.execute(
-            """
-            INSERT INTO events
-                (title, start_time, end_time, location, notes, source_text)
-            VALUES
-                (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s)
-            RETURNING id, start_time, end_time;
-            """,
-            (title, start_time, end_time, location, notes, source_text),
-        )
-        new_id, start, end = cur.fetchone()
-        conn.commit()
-        return {
-            "status": "ok",
-            "id": new_id,
-            "title": title,
-            "start_time": str(start),
-            "end_time": str(end) if end else None,
-        }
-    except Exception as e:
-        if conn is not None:
-            conn.rollback()
-        return {"status": "error", "message": str(e)}
-    finally:
-        try:
-            if cur is not None:
-                cur.close()
-            if conn is not None:
-                conn.close()
-        except Exception:
-            pass
+    argumentos = _args_add_event(title, source_text, start_time, end_time, location, notes)
+    return proteger_escrita(
+        "add_event",
+        argumentos,
+        lambda cur: _gravar_add_event(cur, title, source_text, start_time, end_time, location, notes),
+    )
 
 
 class QueryEventsArgs(BaseModel):

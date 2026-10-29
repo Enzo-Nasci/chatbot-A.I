@@ -1,4 +1,5 @@
 from typing import Annotated
+import inspect
 import re
 from langgraph.graph import StateGraph, MessagesState, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -23,6 +24,37 @@ from app.prompts import (
     FAQ_PROMPT_COMPLETO,
 )
 
+def _middleware_escrita():
+    """Repassa sessão e instrução ao wrapper. A autorização continua na tool."""
+    try:
+        from langchain.agents.middleware import AgentMiddleware
+    except ImportError:
+        return []
+    if "middleware" not in inspect.signature(create_agent).parameters:
+        return []
+
+    class ContextoEscritaMiddleware(AgentMiddleware):
+        def wrap_tool_call(self, request, handler):
+            chamada = getattr(request, "tool_call", None)
+            nome = chamada.get("name") if isinstance(chamada, dict) else ""
+            if nome in {"add_transaction", "update_transaction", "add_event"}:
+                from app.juiz_escrita import preencher_contexto_da_chamada
+
+                preencher_contexto_da_chamada(getattr(request, "state", None))
+            return handler(request)
+
+    try:
+        return [ContextoEscritaMiddleware()]
+    except Exception as exc:
+        print(f"[juiz_escrita] middleware indisponível, contexto fica no turno: {exc}")
+        return []
+
+
+_KW_MIDDLEWARE = {}
+_middleware = _middleware_escrita()
+if _middleware:
+    _KW_MIDDLEWARE["middleware"] = _middleware
+
 routerApp = create_agent(
     model=llmRapido,
     system_prompt=ROUTER_PROMPT_COMPLETO, 
@@ -34,13 +66,14 @@ financeiroApp = create_agent(
     model=llm,
     system_prompt=FINANCEIRO_PROMPT_COMPLETO,
     tools=TOOLS + TOOLS_MEMORIA,
-   
+    **_KW_MIDDLEWARE,
 )
 
 agendaApp = create_agent(
     model=llm,
     system_prompt=AGENDA_PROMPT_COMPLETO,
     tools=TOOLS_AGENDA + TOOLS_GOOGLE + TOOLS_MEMORIA,
+    **_KW_MIDDLEWARE,
 )
 
 orquestradorApp = create_agent(
@@ -221,10 +254,13 @@ def executar_fluxo_assessor(
 
     # O registro abre antes do invoke e fecha no finally, inclusive quando
     # o grafo levanta. A rota /monitor só lê o que ficou anotado.
+    from app.juiz_escrita import definir_contexto, limpar_contexto
+
     turno_id = abrir_turno()
     status = "erro"
     rota = ""
     try:
+        definir_contexto(session_id, pergunta_usuario)
         estado_final = fluxo_agentes.invoke(
             estado_inicial,
             config={"configurable": {"thread_id": session_id, "user_id": user_id}},
@@ -241,3 +277,4 @@ def executar_fluxo_assessor(
         return resposta, estado_final.get("agentes") or []
     finally:
         fechar_turno(turno_id, session_id=session_id, rota=rota, status=status)
+        limpar_contexto()
