@@ -22,6 +22,8 @@ const hint = document.getElementById("hint");
 // Sessão
 // ============================================================
 const SESSION_STORAGE_KEY = "assistente_session_id";
+const USER_STORAGE_KEY = "assistente_user_id";
+const USER_ID_PADRAO = "usuario_teste";
 
 function gerarSessionId() {
   if (window.crypto && crypto.randomUUID) {
@@ -39,8 +41,25 @@ function obterOuCriarSessionId() {
   return id;
 }
 
-function iniciarNovaSessao() {
+function obterUserId() {
+  let id = localStorage.getItem(USER_STORAGE_KEY);
+  if (!id) {
+    id = USER_ID_PADRAO;
+    localStorage.setItem(USER_STORAGE_KEY, id);
+  }
+  return id;
+}
+
+async function iniciarNovaSessao() {
+  const sessaoAnterior = sessionId;
+  try {
+    await fetch(`${API_BASE}/sessao/${sessaoAnterior}/encerrar`, { method: "POST" });
+  } catch (erro) {
+    console.error(erro);
+  }
+
   const id = gerarSessionId();
+  sessionId = id;
   localStorage.setItem(SESSION_STORAGE_KEY, id);
   exibirSessionId(id);
   thread.innerHTML = "";
@@ -55,6 +74,7 @@ function exibirSessionId(id) {
 }
 
 let sessionId = obterOuCriarSessionId();
+const userId = obterUserId();
 exibirSessionId(sessionId);
 
 resetButton.addEventListener("click", iniciarNovaSessao);
@@ -178,6 +198,7 @@ composer.addEventListener("submit", async (evento) => {
       body: JSON.stringify({
         pergunta: pergunta,
         session_id: sessionId,
+        user_id: userId,
       }),
     });
 
@@ -202,9 +223,7 @@ composer.addEventListener("submit", async (evento) => {
     removerIndicadorDigitando();
     adicionarMensagem({
       tipo: "error",
-      texto: erro.message.includes("Failed to fetch")
-        ? `Não foi possível falar com a API em ${API_BASE}. Verifique se o servidor está rodando e se o CORS está liberado.`
-        : erro.message,
+      texto: erro.message
     });
     setHint(erro.message, true);
     console.error(erro);
@@ -214,6 +233,63 @@ composer.addEventListener("submit", async (evento) => {
     inputPergunta.focus();
   }
 });
+
+
+const btnHistorico = document.getElementById("btn-historico");
+
+// ============================================================
+// Busca de Histórico
+// ============================================================
+btnHistorico.addEventListener("click", async () => {
+  try {
+    setHint("Buscando histórico...");
+    btnHistorico.disabled = true; // Evita múltiplos cliques
+
+    // Faz a requisição para a nova rota que criamos no FastAPI
+    const resposta = await fetch(`${API_BASE}/historico/${encodeURIComponent(userId)}`);
+
+    if (!resposta.ok) {
+      throw new Error(`Erro ao buscar histórico: ${resposta.status}`);
+    }
+
+    const dados = await resposta.json();
+    
+    // Verifica se existem sessões anteriores
+    if (dados.historico && dados.historico.length > 0) {
+      let textoHistorico = "<strong>📜 Resumo das suas conversas anteriores:</strong><br><br>";
+      
+      // Monta o texto iterando pelos resumos que vieram do banco
+      dados.historico.forEach(sessao => {
+        const dataFmt = new Date(sessao.iniciada_em).toLocaleDateString('pt-BR');
+        textoHistorico += `<em>${dataFmt}</em>: ${sessao.resumo}<br><br>`;
+      });
+      
+      // Reaproveita a função existente para mostrar na tela
+      adicionarMensagem({ 
+        tipo: "assistant", 
+        texto: textoHistorico, 
+        agentes: ["sistema_memoria"] 
+      });
+      
+      setHint("Histórico carregado com sucesso.");
+    } else {
+      adicionarMensagem({ 
+        tipo: "assistant", 
+        texto: "Nenhuma conversa anterior foi encontrada para este usuário.", 
+        agentes: ["sistema"] 
+      });
+      setHint("");
+    }
+  } catch (erro) {
+    setHint("Falha ao carregar histórico.", true);
+    console.error(erro);
+  } finally {
+    btnHistorico.disabled = false;
+    rolarParaFinal();
+  }
+});
+
+
 
 // Foco inicial
 inputPergunta.focus();

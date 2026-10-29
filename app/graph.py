@@ -1,15 +1,20 @@
-from typing import Annotated, TypedDict
-from dotenv import load_dotenv
+from typing import Annotated
+import re
 from langgraph.graph import StateGraph, MessagesState, END
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_groq import ChatGroq
+from app.observabilidade import abrir_turno, fechar_turno, status_do_estado
+from langchain.agents import create_agent
+from app.memoryMongo import salvar_mensagem
+from langchain_core.messages import RemoveMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from app.tools.financeiro import TOOLS
-from app.tools.faq import search_faq
+from app.tools.agenda import TOOLS_AGENDA
+from app.tools.calendario_google import TOOLS_GOOGLE
+from app.memory import TOOLS_MEMORIA
+from app.tools.faq import faq_retriever
 from app.guardrail import anonimizar_entrada, guardrail_entrada, guardrail_saida
-from langchain_core.messages import RemoveMessage
 from app.llm import llm, llmRapido
+from app.juiz import no_juiz
 from app.prompts import (
     ROUTER_PROMPT_COMPLETO,
     FINANCEIRO_PROMPT_COMPLETO,
@@ -18,111 +23,137 @@ from app.prompts import (
     FAQ_PROMPT_COMPLETO,
 )
 
-routerMemory = MemorySaver()
-
-# Roteador
 routerApp = create_agent(
     model=llmRapido,
-    system_prompt=ROUTER_PROMPT_COMPLETO,
-    checkpointer=routerMemory,
+    system_prompt=ROUTER_PROMPT_COMPLETO, 
+    tools=None,
+    
 )
 
-# Especialistas
 financeiroApp = create_agent(
     model=llm,
     system_prompt=FINANCEIRO_PROMPT_COMPLETO,
-    tools=TOOLS,
+    tools=TOOLS + TOOLS_MEMORIA,
+   
 )
 
 agendaApp = create_agent(
     model=llm,
     system_prompt=AGENDA_PROMPT_COMPLETO,
+    tools=TOOLS_AGENDA + TOOLS_GOOGLE + TOOLS_MEMORIA,
 )
 
 orquestradorApp = create_agent(
     model=llmRapido,
     system_prompt=ORQUESTRADOR_PROMPT_COMPLETO,
+    tools=[],
 )
 
 faqApp = create_agent(
     model=llm,
     system_prompt=FAQ_PROMPT_COMPLETO,
-    tools=[search_faq],
+    tools=[faq_retriever],
 )
 
-# Estado
 class Estado(MessagesState):
     agentes: Annotated[list[str], "Lista dos agentes chamados durante o fluxo."]
     rota: str
-    mapa_pii: dict  # tokens -> valores originais gerados na anonimização
+    mapa_pii: dict
+    session_id: str
 
-# Nós
+
+def _lista_agentes(estado: Estado) -> list[str]:
+    return list(estado.get("agentes") or [])
+
+
+def _conteudo_mensagem(msg) -> str:
+    if hasattr(msg, "content"):
+        conteudo = msg.content
+    elif isinstance(msg, dict):
+        conteudo = msg.get("content", "")
+    else:
+        conteudo = str(msg)
+    if isinstance(conteudo, list):
+        partes = []
+        for bloco in conteudo:
+            if isinstance(bloco, str):
+                partes.append(bloco)
+            elif isinstance(bloco, dict):
+                partes.append(bloco.get("text", ""))
+            else:
+                partes.append(getattr(bloco, "text", "") or "")
+        return "".join(partes)
+    return conteudo or ""
+
+
+
 def no_roteador(estado: Estado) -> dict:
     saida = routerApp.invoke({"messages": list(estado["messages"])})
-    texto = saida["messages"][-1].text
+    texto = _conteudo_mensagem(saida["messages"][-1])
 
-    if "ROUTE=" not in texto:
+    match = re.search(r"ROUTE\s*=\s*\*?\*?(financeiro|agenda|faq)\*?\*?", texto, re.IGNORECASE)
+
+    if not match:
         return {
-            "agentes": estado["agentes"] + ["roteador"],
+            "agentes": _lista_agentes(estado) + ["roteador"],
             "rota": "fim",
-            "messages": [{"role": "assistant", "content": texto}],
+            "messages": [saida["messages"][-1]],
         }
 
-    rota = "fim"
-    for linha in texto.splitlines():
-        if linha.startswith("ROUTE="):
-            rota = linha.split("=", 1)[1].strip()
-            break
+    rota = match.group(1).lower()
 
     return {
-        "agentes": estado["agentes"] + ["roteador", rota],
+        "agentes": _lista_agentes(estado) + ["roteador", rota],
         "rota": rota,
     }
 
-
 def no_guardrail_entrada(estado: Estado) -> dict:
-    pergunta_usuario = estado["messages"][-1].content
+    pergunta_usuario = _conteudo_mensagem(estado["messages"][-1])
     texto_anonimizado, mapa_pii = anonimizar_entrada(pergunta_usuario)
     resposta_guardrail = guardrail_entrada(texto_anonimizado)
 
     if resposta_guardrail["bloqueado"]:
         return {
             "rota": "fim",
-            "agentes": estado["agentes"] + ["guardrail_entrada"],
+            "agentes": ["guardrail_entrada"],
             "messages": [{"role": "assistant", "content": resposta_guardrail["mensagem"]}],
         }
     else:
         return {
             "mapa_pii": mapa_pii,
-            "agentes": estado["agentes"] + ["guardrail_entrada"],
+            "agentes": ["guardrail_entrada"],
             "messages": [
                 RemoveMessage(id=estado["messages"][-1].id),
-                {"role": "assistant", "content": texto_anonimizado}
+                {"role": "human", "content": texto_anonimizado},
             ],
         }
 
 def no_guardrail_saida(estado: Estado) -> dict:
-    resposta_orquestrador = estado["messages"][-1].content
-    mapa_pii = estado["mapa_pii"]
+    resposta_orquestrador = _conteudo_mensagem(estado["messages"][-1])
+    mapa_pii = estado.get("mapa_pii") or {}
     resposta_final = guardrail_saida(resposta_orquestrador, mapa_pii)
 
     return {
         "messages": [{"role": "assistant", "content": resposta_final["conteudo"]}],
-        "agentes": estado["agentes"] + ["guardrail_saida"],
+        "agentes": _lista_agentes(estado) + ["guardrail_saida"],
     }
 
-
-def no_orquestrador(estado: Estado) -> dict:
-    ultimo_espec = ""
-    for messages in reversed(estado["messages"]):
-        if messages.type == "ai" and messages.content:
-            ultimo_espec = messages.content
+def no_orquestrador(estado: Estado, config: RunnableConfig) -> dict:
+    # Pega a última resposta do especialista (última AIMessage com conteúdo)
+    ultima_especialista = ""
+    for mensagem in reversed(estado["messages"]):
+        if mensagem.type == "ai" and mensagem.content:
+            ultima_especialista = mensagem.content
             break
+    # config segue o mesmo motivo do roteador: sem ele, o modelo deste nó
+    # não herda o metadata do grafo (e o registro de observabilidade perde o nó).
+    saida = orquestradorApp.invoke({
+        "messages": [{"role": "human", "content": ultima_especialista}]
+    }, config=config)
 
-    saida = orquestradorApp.invoke({"messages": [estado["messages"][-1]]})
     return {
-        "agentes": estado["agentes"] + ["orquestrador"],
-        "messages": [saida["messages"][-1]],
+        "agentes": _lista_agentes(estado) + ["orquestrador"],
+        "messages": [{"role": "assistant", "content": saida["messages"][-1].text}],
     }
 
 # Decisões
@@ -134,7 +165,6 @@ def decidir_especialista(estado: Estado) -> str:
         "agenda",
         "faq",
     ) else "fim"
-
 
 def decidir_pos_guardrail_entrada(estado: Estado) -> str:
     if estado.get("messages", []) and estado.get("rota", "") == "fim":
@@ -151,6 +181,7 @@ grafo.add_node("agenda", agendaApp)
 grafo.add_node("faq", faqApp)
 grafo.add_node("orquestrador", no_orquestrador)
 grafo.add_node("guardrail_saida", no_guardrail_saida)
+grafo.add_node("juiz", no_juiz)
 
 grafo.set_entry_point("guardrail_entrada")
 grafo.add_conditional_edges(
@@ -165,37 +196,48 @@ grafo.add_conditional_edges(
     {"financeiro": "financeiro", "agenda": "agenda", "faq": "faq", "fim": END},
 )
 
-grafo.add_edge("financeiro", "orquestrador")
-grafo.add_edge("agenda", "orquestrador")
-grafo.add_edge("orquestrador", "guardrail_saida")
-grafo.add_edge("guardrail_saida", END)
-grafo.add_edge("faq", END)
+grafo.add_edge("financeiro",      "orquestrador")
+grafo.add_edge("agenda",          "orquestrador")
+grafo.add_edge("orquestrador",    "guardrail_saida")
+grafo.add_edge("guardrail_saida", "juiz")
+grafo.add_edge("faq",             "juiz")
+grafo.add_edge("juiz",            END)
 
 memory = MemorySaver()
 fluxo_agentes = grafo.compile(checkpointer=memory)
 
 # Função principal
-
-def executar_fluxo_assessor(pergunta_usuario: str, session_id: str) -> dict:
+def executar_fluxo_assessor(
+    pergunta_usuario: str, session_id: str, user_id: str = "usuario_teste"
+) -> tuple:
+    pergunta_usuario_anonimizado, _ = anonimizar_entrada(pergunta_usuario)
     estado_inicial = {
         "messages": [{"role": "human", "content": pergunta_usuario}],
         "agentes": [],
         "rota": "",
         "mapa_pii": {},
-    }
-    
-    estado_final = fluxo_agentes.invoke(
-        estado_inicial,
-        config={"configurable": {"thread_id": session_id}},
-    )
-
-    print(f"[debug] agentes chamados: {estado_final.get('agentes')}")
-
-    print(estado_final)  # debug temporário
-
-    resposta = estado_final["messages"][-1].content
-    return {
-        "resposta": resposta if isinstance(resposta, str) else str(resposta),
-        "agentes_chamados": estado_final.get("agentes", []),
+        "session_id": session_id,
     }
 
+    # O registro abre antes do invoke e fecha no finally, inclusive quando
+    # o grafo levanta. A rota /monitor só lê o que ficou anotado.
+    turno_id = abrir_turno()
+    status = "erro"
+    rota = ""
+    try:
+        estado_final = fluxo_agentes.invoke(
+            estado_inicial,
+            config={"configurable": {"thread_id": session_id, "user_id": user_id}},
+        )
+
+        resposta = estado_final["messages"][-1].text
+
+        # Salva no MongoDB após cada interação
+        salvar_mensagem(session_id, "human",     pergunta_usuario_anonimizado, user_id=user_id)
+        salvar_mensagem(session_id, "assistant", resposta, user_id=user_id)
+
+        status = status_do_estado(estado_final)
+        rota = estado_final.get("rota") or ""
+        return resposta, estado_final.get("agentes") or []
+    finally:
+        fechar_turno(turno_id, session_id=session_id, rota=rota, status=status)

@@ -18,7 +18,7 @@ PII = [
     ("CNPJ",     r"\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}"),
     ("TELEFONE", r"\(?\d{2}\)?\s?\d{4,5}-?\d{4}"),
     ("EMAIL",    r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"),
-    ("CONTA",    r"\d{4,6}-\d{1}"),
+    ("CONTA",    r"\d{4,6}-[0-9Xx]{1}"), # CORREÇÃO: Permite 'X' ou 'x' no dígito verificador
     ("CARTAO",   r"\d{4}\s?\d{4}\s?\d{4}\s?\d{4}"),
 ]
 
@@ -118,18 +118,17 @@ def guardrail_entrada(mensagem_anonimizada):
     determinístico primeiro, LLM só se necessário.
     Retorna dict com bloqueado, motivo e mensagem.
     """
-    # 1. Prompt injection
+    
     for padrao in _PADROES_INJECAO:
         if re.search(padrao, mensagem_anonimizada, re.IGNORECASE):
             return _bloquear("prompt_injection", "Não consigo processar essa solicitação.")
 
-    # 2. Tentativa de acesso a dados internos
+    
     texto_lower = mensagem_anonimizada.lower()
     for kw in _KEYWORDS_DADOS_INTERNOS:
         if kw in texto_lower:
             return _bloquear("acesso_dados_internos", "Não tenho como compartilhar informações internas do sistema.")
 
-    # 3. Classificação semântica via LLM (ofensivo, perigoso, ilícito, político, indicação)
     resposta = llmGuard.invoke(_PROMPT_CLASSIFICADOR.format(mensagem=mensagem_anonimizada)).content
 
     categoria = "APROVADO"
@@ -162,19 +161,16 @@ Resposta para revisar:
 {resposta}
 """
 
-def guardrail_saida(resposta, mapa_pii, restaurar_pii=False):
+def guardrail_saida(resposta, mapa_pii, restaurar_pii=True): 
     """
     Limpa e revisa a resposta do especialista antes de entregar ao usuário.
     Nunca bloqueia — sempre retorna o texto revisado em 'conteudo'.
     """
-    # 1. Remove PII que o modelo tenha gerado
     for tipo, padrao in PII:
         resposta = re.sub(padrao, f"[{tipo} OMITIDO]", resposta)
 
-    # 2. Resolve tokens de PII da entrada
     resposta = desanonimizar_saida(resposta, mapa_pii, restaurar=restaurar_pii)
 
-    # 3. Revisão de compliance financeiro
     saida = llmGuard.invoke(_PROMPT_COMPLIANCE.format(resposta=resposta)).content.strip()
     if "RESPOSTA:" in saida:
         resposta = saida.split("RESPOSTA:", 1)[1].strip() or resposta

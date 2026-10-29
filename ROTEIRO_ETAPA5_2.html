@@ -1,0 +1,1732 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Etapa 5.2 — Agenda e o Assessor como cliente MCP</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #050a14;
+  --cyan: #00e5ff;
+  --green: #00ff88;
+  --orange: #ff6b35;
+  --purple: #7c3aed;
+  --pink: #f472b6;
+  --text: #e8f4f8;
+  --muted: #7fa8c0;
+  --card: rgba(255,255,255,0.04);
+  --border: rgba(0,229,255,0.15);
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans',sans-serif; }
+
+#bg { position:fixed; inset:0; z-index:0; opacity:.3; pointer-events:none; }
+
+#progress-bar {
+  position:fixed; top:0; left:0; height:3px; z-index:200;
+  background:linear-gradient(90deg, var(--cyan), var(--purple));
+  transition: width .4s ease;
+}
+
+#topbar {
+  position:fixed; top:0; left:0; right:0; height:52px; z-index:150;
+  background:rgba(5,10,20,.88); backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between; padding:0 32px;
+}
+.tb-label { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--cyan); letter-spacing:2px; text-transform:uppercase; }
+.tb-counter { font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--muted); }
+.tb-title { font-family:'IBM Plex Sans',sans-serif; font-size:13px; color:var(--muted); max-width:360px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+#slides { position:fixed; inset:0; z-index:1; }
+
+.slide {
+  position:absolute; inset:0;
+  display:flex; flex-direction:column; justify-content:flex-start; align-items:center;
+  padding:72px 60px 80px;
+  opacity:0; pointer-events:none;
+  transition: opacity .5s ease, transform .5s ease;
+  transform: translateX(60px);
+  overflow-y: auto;
+}
+.slide.active { opacity:1; pointer-events:all; transform:translateX(0); }
+.slide.prev   { opacity:0; pointer-events:none; transform:translateX(-60px); }
+.slide-inner { width:100%; max-width:1080px; margin:auto 0; }
+
+#nav-prev, #nav-next {
+  position:fixed; top:50%; z-index:200;
+  transform:translateY(-50%);
+  width:48px; height:48px; border-radius:50%;
+  border:1px solid var(--border); background:rgba(5,10,20,.7);
+  backdrop-filter:blur(8px); cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  font-size:20px; color:var(--cyan);
+  transition:all .2s; user-select:none;
+}
+#nav-prev { left:16px; }
+#nav-next { right:16px; }
+#nav-prev:hover, #nav-next:hover { background:rgba(0,229,255,.12); border-color:var(--cyan); }
+#nav-prev.disabled, #nav-next.disabled { opacity:.25; pointer-events:none; }
+
+#dots { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); display:flex; gap:6px; z-index:200; flex-wrap:wrap; max-width:70%; justify-content:center; }
+.dot { width:7px; height:7px; border-radius:50%; background:var(--muted); opacity:.4; cursor:pointer; transition:all .3s; }
+.dot.active { background:var(--cyan); opacity:1; transform:scale(1.3); }
+.dot.done { background:var(--green); opacity:.8; }
+
+.tag  { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--cyan);   letter-spacing:3px; text-transform:uppercase; margin-bottom:10px; display:block; }
+.gtag { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--green);  letter-spacing:3px; text-transform:uppercase; margin-bottom:10px; display:block; }
+.ptag { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--purple); letter-spacing:3px; text-transform:uppercase; margin-bottom:10px; display:block; }
+.otag { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--orange); letter-spacing:3px; text-transform:uppercase; margin-bottom:10px; display:block; }
+
+h1.hero-title { font-family:'Syne',sans-serif; font-size:clamp(2.2rem,4.6vw,4rem); font-weight:800; line-height:1.08; margin-bottom:20px; }
+h2.sec-title  { font-family:'Syne',sans-serif; font-size:clamp(1.4rem,3vw,2.3rem); font-weight:800; line-height:1.18; margin-bottom:12px; }
+h3.slide-h3   { font-family:'Syne',sans-serif; font-size:1.15rem; font-weight:700; margin-bottom:14px; }
+p.lead { color:var(--muted); font-size:.98rem; line-height:1.7; margin-bottom:22px; }
+
+.badge {
+  display:inline-flex; align-items:center; gap:8px;
+  background:rgba(0,229,255,.08); border:1px solid var(--border);
+  border-radius:20px; padding:6px 16px;
+  font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--cyan); letter-spacing:1px;
+  margin-bottom:26px; width:fit-content;
+}
+.badge::before { content:''; width:7px; height:7px; background:var(--green); border-radius:50%; animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.5)} }
+
+.hero-q {
+  background:linear-gradient(135deg,rgba(0,229,255,.06),rgba(124,58,237,.06));
+  border:1px solid rgba(0,229,255,.2); border-left:4px solid var(--cyan);
+  border-radius:12px; padding:20px 26px; font-size:1.02rem; color:var(--text);
+  max-width:780px; margin-top:6px;
+  animation:fadeUp .8s ease both .3s;
+}
+@keyframes fadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+
+.card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:22px; }
+.g2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.g3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+@media(max-width:680px){.g2,.g3{grid-template-columns:1fr}}
+
+.pill-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:24px; }
+.pill { background:rgba(0,255,136,.07); border:1px solid rgba(0,255,136,.25); border-radius:20px; padding:5px 14px; font-size:12px; color:var(--green); font-family:'IBM Plex Mono',monospace; }
+
+.bridge { background:linear-gradient(135deg,rgba(0,229,255,.05),rgba(124,58,237,.05)); border:1px solid rgba(0,229,255,.2); border-radius:14px; padding:22px 26px; }
+
+/* ═══ MARCADOR DE BLOCO ═══ */
+.bloco-mark {
+  display:inline-flex; align-items:center; gap:10px; margin-bottom:14px;
+  font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:2.5px; text-transform:uppercase;
+  border-radius:20px; padding:5px 15px;
+}
+.bl-a { background:rgba(0,229,255,.09);  border:1px solid rgba(0,229,255,.35);  color:var(--cyan); }
+.bl-b { background:rgba(255,107,53,.09); border:1px solid rgba(255,107,53,.35); color:var(--orange); }
+.bl-c { background:rgba(0,255,136,.08);  border:1px solid rgba(0,255,136,.32);  color:var(--green); }
+
+/* ═══ TABELA ═══ */
+.tbl { width:100%; border-collapse:collapse; font-size:.82rem; }
+.tbl th { text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--cyan); padding:9px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.tbl td { padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.05); color:var(--muted); vertical-align:top; line-height:1.5; }
+.tbl td strong, .tbl td code { color:var(--text); }
+.tbl td code { font-family:'IBM Plex Mono',monospace; background:rgba(0,0,0,.3); padding:1px 6px; border-radius:4px; font-size:.78rem; }
+.tbl tbody tr:hover td { background:rgba(0,229,255,.03); }
+.tbl tr.sep-a td { background:rgba(0,229,255,.05); }
+.tbl tr.sep-b td { background:rgba(255,107,53,.05); }
+.tbl tr.sep-c td { background:rgba(0,255,136,.04); }
+
+/* ═══ CÓDIGO ═══ */
+.code {
+  background:rgba(0,0,0,.42); border:1px solid var(--border); border-radius:10px;
+  padding:14px 18px; font-family:'IBM Plex Mono',monospace; font-size:.74rem;
+  line-height:1.7; overflow-x:auto; white-space:pre; color:#bfe4f2;
+}
+.code .k { color:var(--pink); }
+.code .s { color:var(--green); }
+.code .c { color:var(--muted); font-style:italic; }
+.code .h { color:var(--cyan); font-weight:500; }
+.code .o { color:var(--orange); }
+.code .del { color:#ff8fa3; }
+
+.code-wrap { border:1px solid var(--border); border-radius:9px; overflow:hidden; margin-bottom:14px; transition:border-color .2s, box-shadow .2s; }
+.code-wrap.open { border-color:var(--cyan); box-shadow:0 0 0 1px rgba(0,229,255,.08); }
+.code-header { display:flex; justify-content:space-between; align-items:center; padding:9px 14px; background:rgba(0,0,0,.55); border-bottom:1px solid var(--border); cursor:pointer; user-select:none; transition:background .15s; gap:12px; }
+.code-header:hover { background:rgba(0,229,255,.06); }
+.code-header .fname { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--cyan); }
+.code-right { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.code-header .lbadge { font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+.code-toggle-btn {
+  font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:.5px;
+  color:var(--cyan); border:1px solid var(--border); border-radius:20px; padding:3px 11px;
+  white-space:nowrap; transition:.2s; background:rgba(0,229,255,.05);
+}
+.code-toggle-btn::before { content:'▸ '; }
+.code-wrap.open .code-toggle-btn { color:var(--bg); background:var(--green); border-color:var(--green); font-weight:600; }
+.code-wrap.open .code-toggle-btn::before { content:'▾ '; }
+.copy-btn {
+  font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:.5px;
+  color:var(--purple); border:1px solid rgba(124,58,237,.4); border-radius:20px; padding:3px 11px;
+  white-space:nowrap; transition:.2s; background:rgba(124,58,237,.08); cursor:pointer;
+  display:none;
+}
+.copy-btn:hover { background:rgba(124,58,237,.2); color:var(--pink); }
+.copy-btn.done { color:var(--bg); background:var(--green); border-color:var(--green); font-weight:600; }
+.code-wrap.open .copy-btn { display:inline-block; }
+.code-wrap .code { display:none; border:none; border-radius:0; }
+.code-wrap.open .code { display:block; animation:codeIn .28s ease; }
+@keyframes codeIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+
+/* ═══ PASSOS ═══ */
+.step-marker { display:flex; align-items:center; gap:16px; margin-bottom:18px; }
+.step-num {
+  font-family:'Syne',sans-serif; font-weight:800; font-size:1.6rem;
+  width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center;
+  background:rgba(0,229,255,.08); border:1px solid var(--border); color:var(--cyan); flex-shrink:0;
+}
+.step-num.b { background:rgba(255,107,53,.08); border-color:rgba(255,107,53,.3); color:var(--orange); }
+.step-num.c { background:rgba(0,255,136,.07); border-color:rgba(0,255,136,.3); color:var(--green); }
+.step-meta { display:flex; flex-direction:column; gap:2px; }
+.step-file { font-family:'IBM Plex Mono',monospace; font-size:.92rem; color:var(--text); }
+.step-obj { font-size:.78rem; color:var(--muted); }
+
+.callout { border-left:3px solid; border-radius:0 8px 8px 0; padding:12px 16px; margin:12px 0 0; font-size:.83rem; line-height:1.6; }
+.callout .ct { font-family:'IBM Plex Mono',monospace; font-weight:500; font-size:9.5px; text-transform:uppercase; letter-spacing:1.5px; margin-bottom:5px; }
+.callout p { margin:0; color:var(--muted); font-size:.83rem; }
+.callout p + p { margin-top:8px; }
+.callout code { font-family:'IBM Plex Mono',monospace; background:rgba(0,0,0,.3); padding:1px 6px; border-radius:4px; color:var(--text); font-size:.78rem; }
+.co-ok   { border-color:var(--green);  background:rgba(0,255,136,.05); }
+.co-ok .ct { color:var(--green); }
+.co-warn { border-color:var(--orange); background:rgba(255,107,53,.05); }
+.co-warn .ct { color:var(--orange); }
+.co-info { border-color:var(--purple); background:rgba(124,58,237,.06); }
+.co-info .ct { color:#c4b5fd; }
+.co-err  { border-color:#ff4d6d; background:rgba(255,77,109,.06); }
+.co-err .ct { color:#ff8fa3; }
+
+/* ═══ TESTES ═══ */
+.test-box { background:rgba(0,255,136,.04); border:1px solid rgba(0,255,136,.22); border-radius:12px; padding:16px 20px; margin-bottom:12px; }
+.test-box .tt { font-family:'Syne',sans-serif; font-weight:800; font-size:.88rem; color:var(--green); margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+.test-box ol, .test-box ul { margin-left:18px; }
+.test-box li { font-size:.83rem; color:var(--muted); line-height:1.65; margin-bottom:4px; }
+.test-box li strong, .test-box li code { color:var(--text); }
+.test-box code { font-family:'IBM Plex Mono',monospace; background:rgba(0,0,0,.3); padding:1px 6px; border-radius:4px; font-size:.78rem; }
+.test-box p { font-size:.83rem; color:var(--muted); line-height:1.65; }
+
+/* ═══ TESTE CONVERSACIONAL (pergunta → resposta esperada) ═══ */
+.qa { width:100%; border-collapse:collapse; font-size:.82rem; margin-top:8px; }
+.qa th { text-align:left; font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:var(--green); padding:8px 10px; border-bottom:1px solid rgba(0,255,136,.25); }
+.qa td { padding:10px; border-bottom:1px solid rgba(255,255,255,.06); color:var(--muted); vertical-align:top; line-height:1.55; font-size:.82rem; }
+.qa td.n { color:var(--green); font-family:'IBM Plex Mono',monospace; width:26px; text-align:center; }
+.qa tr:last-child td { border-bottom:none; }
+.voce {
+  color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:.78rem;
+  background:rgba(0,229,255,.08); border:1px solid rgba(0,229,255,.22);
+  border-radius:6px; padding:3px 9px; display:inline-block; line-height:1.45;
+}
+.acao { color:var(--text); font-size:.8rem; }
+.qa .ok  { color:var(--green); font-weight:500; }
+.qa .nao { color:var(--orange); font-weight:500; }
+.qa code { font-family:'IBM Plex Mono',monospace; background:rgba(0,0,0,.3); padding:1px 6px; border-radius:4px; color:var(--text); font-size:.76rem; }
+
+/* ═══ CHECKLIST ANIMADA ═══ */
+.final-check { display:flex; flex-direction:column; gap:8px; margin-bottom:18px; }
+.fc-item {
+  display:flex; align-items:center; gap:12px; padding:9px 16px;
+  background:var(--card); border:1px solid var(--border); border-radius:10px;
+  opacity:0; transform:translateX(-16px);
+}
+.final-check.play .fc-item { animation:fcIn .5s ease forwards; }
+.final-check.play .fc-item:nth-child(1){animation-delay:.04s}
+.final-check.play .fc-item:nth-child(2){animation-delay:.14s}
+.final-check.play .fc-item:nth-child(3){animation-delay:.24s}
+.final-check.play .fc-item:nth-child(4){animation-delay:.34s}
+.final-check.play .fc-item:nth-child(5){animation-delay:.44s}
+.final-check.play .fc-item:nth-child(6){animation-delay:.54s}
+.final-check.play .fc-item:nth-child(7){animation-delay:.64s}
+.final-check.play .fc-item:nth-child(8){animation-delay:.74s}
+.final-check.play .fc-item:nth-child(9){animation-delay:.84s}
+.final-check.play .fc-item:nth-child(10){animation-delay:.94s}
+.final-check.play .fc-item:nth-child(11){animation-delay:1.04s}
+.final-check.play .fc-item:nth-child(12){animation-delay:1.14s}
+.final-check.play .fc-item:nth-child(13){animation-delay:1.24s}
+.final-check.play .fc-item:nth-child(14){animation-delay:1.34s}
+@keyframes fcIn { to{opacity:1;transform:translateX(0)} }
+.fc-check { width:20px; height:20px; border-radius:50%; border:1px solid var(--green); color:var(--green); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:11px; }
+.fc-text { font-size:.82rem; color:var(--text); font-family:'IBM Plex Mono',monospace; }
+
+/* ═══ ANTES / DEPOIS ═══ */
+.yn { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media(max-width:680px){ .yn{ grid-template-columns:1fr; } }
+.yn-col { border-radius:14px; padding:18px 20px; }
+.yn-yes { background:rgba(0,255,136,.05); border:1px solid rgba(0,255,136,.22); }
+.yn-no  { background:rgba(255,107,53,.05); border:1px solid rgba(255,107,53,.22); }
+.yn-col h4 { font-family:'Syne',sans-serif; font-size:.92rem; margin-bottom:12px; }
+.yn-col li { list-style:none; font-size:.82rem; color:var(--muted); line-height:1.55; padding:5px 0 5px 20px; position:relative; }
+.yn-yes li::before { content:'✓'; position:absolute; left:0; color:var(--green); }
+.yn-no  li::before { content:'✕'; position:absolute; left:0; color:var(--orange); }
+
+.next-pills { display:flex; flex-wrap:wrap; gap:10px; }
+.next-pill { font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:8px 15px; border-radius:20px; background:rgba(124,58,237,.08); border:1px solid rgba(124,58,237,.3); color:var(--pink); }
+
+.slide-scroll { overflow-y:auto; }
+.divider { height:1px; background:var(--border); margin:18px 0; }
+
+code.inline { font-family:'IBM Plex Mono',monospace; color:var(--cyan); background:rgba(0,229,255,.06); padding:1px 7px; border-radius:5px; font-size:.86em; }
+
+/* ═══ CICLO DE VIDA ═══ */
+.ciclo { display:flex; align-items:stretch; gap:8px; flex-wrap:wrap; margin:10px 0 6px; }
+.ci-step {
+  flex:1; min-width:132px; border-radius:12px; padding:14px 14px;
+  background:var(--card); border:1px solid var(--border);
+  font-family:'IBM Plex Mono',monospace; font-size:.72rem; color:var(--muted); line-height:1.5;
+}
+.ci-step .ci-n { display:block; font-size:.68rem; letter-spacing:1.5px; margin-bottom:6px; opacity:.75; }
+.ci-step .ci-t { display:block; font-size:.86rem; color:var(--text); margin-bottom:5px; font-family:'Syne',sans-serif; font-weight:700; }
+.ci-a { border-color:rgba(0,229,255,.4);  background:rgba(0,229,255,.06); }
+.ci-a .ci-n { color:var(--cyan); }
+.ci-b { border-color:rgba(255,107,53,.4); background:rgba(255,107,53,.06); }
+.ci-b .ci-n { color:var(--orange); }
+.ci-c { border-color:rgba(0,255,136,.35); background:rgba(0,255,136,.05); }
+.ci-c .ci-n { color:var(--green); }
+
+/* ═══ CADEIA CAUSAL ═══ */
+.cadeia { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:12px 0 4px; }
+.cd-box {
+  flex:1; min-width:150px; border-radius:10px; padding:13px 15px; text-align:center;
+  background:rgba(255,77,109,.06); border:1px solid rgba(255,77,109,.28);
+  font-family:'IBM Plex Mono',monospace; font-size:.74rem; color:#ffb3c1; line-height:1.5;
+}
+.cd-box.fim { background:rgba(255,77,109,.14); border-color:rgba(255,77,109,.5); color:#ff8fa3; font-weight:600; }
+.cd-arrow { color:#ff8fa3; font-size:1.3rem; flex-shrink:0; }
+@media(max-width:780px){ .cd-arrow{ transform:rotate(90deg); } }
+
+/* ═══ FLUXO DE AGENTES ═══ */
+.agflow { display:flex; align-items:stretch; gap:10px; flex-wrap:wrap; margin:6px 0 4px; }
+.agnode {
+  flex:1; min-width:140px; border-radius:12px; padding:14px 16px;
+  font-family:'IBM Plex Mono',monospace; font-size:.76rem; text-align:center;
+  background:var(--card); border:1px solid var(--border); color:var(--muted);
+}
+.agnode .an-name { font-size:.86rem; color:var(--text); display:block; margin-bottom:6px; }
+.agnode.has  { background:rgba(0,255,136,.06); border-color:rgba(0,255,136,.35); }
+.agnode.has .an-name { color:var(--green); }
+.agnode.hasnt { background:rgba(255,107,53,.05); border-color:rgba(255,107,53,.25); }
+.agnode.hasnt .an-name { color:var(--orange); }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div id="progress-bar"></div>
+<div id="topbar">
+  <span class="tb-label">⬡ Etapa 5.2 — Agenda + cliente MCP</span>
+  <span class="tb-title" id="slide-title-bar"></span>
+  <span class="tb-counter" id="slide-counter"></span>
+</div>
+<div id="nav-prev">←</div>
+<div id="nav-next">→</div>
+<div id="dots"></div>
+<div id="slides">
+
+<div class="slide active" data-title="Abertura">
+<div class="slide-inner">
+  <div class="badge">ETAPA 5.2 · AGENDA · MCP CLIENTE · GOOGLE CALENDAR</div>
+  <h1 class="hero-title">A agenda ganha <span style="color:var(--cyan)">consulta</span><br>e o Assessor vira <span style="color:var(--orange)">cliente</span> MCP.</h1>
+  <p class="lead" style="max-width:760px;">Na aula passada o Assessor <strong style="color:var(--text)">serviu</strong> tools para o Cursor. Nesta: (1) agenda no Postgres — <code class="inline">agenda.py</code> + <code class="inline">prompts.py</code>; (2) como um produto ligaria o Calendar de cada usuário; (3) o que o professor já fez no Cloud; (4) cada aluno autentica <strong style="color:var(--text)">só com Python</strong> e marca o evento no Gmail dele. Sem Node, sem <code class="inline">npx</code>.</p>
+  <div class="hero-q">📌 <strong>A pergunta da aula:</strong> se o banco já é nosso, por que chamar a Google via MCP e não com uma lib Python? Porque o calendário vive <em>em outro programa</em>, com a conta de cada um.</div>
+  <div class="pill-row" style="margin-top:22px;">
+    <div class="pill">📄 agenda.py + prompts.py</div>
+    <div class="pill">🏢 fluxo real com usuário</div>
+    <div class="pill">🔑 um app no Google Cloud</div>
+    <div class="pill">🐍 OAuth e cliente só em Python</div>
+    <div class="pill">📅 cada um no próprio Calendar</div>
+  </div>
+  <div class="callout co-warn" style="max-width:760px;">
+    <div class="ct">Pré-requisitos</div>
+    <p>Etapa 5 no ar: servidor MCP do banco, Cursor listando as tools. Postgres com a tabela <code>events</code>. Conta Google pessoal de cada aluno para a segunda metade.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="O buraco da agenda">
+<div class="slide-inner slide-scroll">
+  <span class="otag">diagnóstico</span>
+  <h2 class="sec-title">O prompt já pedia consulta. A tool <span style="color:var(--orange)">não existia</span>.</h2>
+  <p class="lead">O agente de agenda recebia só <code class="inline">add_event</code>. “O que eu tenho amanhã?” não tinha de onde tirar dado — e o prompt mandava <em>não confirmar disponibilidade sem consultar</em>. Ou o modelo inventava, ou recusava.</p>
+  <div class="yn" style="margin-bottom:18px;">
+    <div class="yn-col yn-no">
+      <h4 style="color:var(--orange)">Até agora</h4>
+      <ul>
+        <li>Só INSERT na tabela <code>events</code></li>
+        <li>Aluno sem o arquivo (o professor tinha criado)</li>
+        <li>MCP só do financeiro, e só como servidor</li>
+      </ul>
+    </div>
+    <div class="yn-col yn-yes">
+      <h4 style="color:var(--green)">Nesta aula</h4>
+      <ul>
+        <li><code>add_event</code> + <code>query_events</code> no mesmo arquivo</li>
+        <li>Arquivo único para colar em <code>app/tools/agenda.py</code></li>
+        <li>O Assessor consome o MCP do Google Calendar</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout co-info">
+    <div class="ct">Dois protocolos, dois destinos</div>
+    <p><code>add_event</code> / <code>query_events</code> são <code>@tool</code> LangChain no mesmo Python do grafo — iguais às de finanças. <code>add_google_event</code> é outra porta: cliente MCP falando com a Google. O SQL não muda.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="Arquivo para o aluno">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-a">bloco A · agenda.py</div>
+  <div class="step-marker">
+    <div class="step-num">1</div>
+    <div class="step-meta">
+      <div class="step-file">app/tools/agenda.py — cole o arquivo inteiro</div>
+      <div class="step-obj">substitui o que estiver lá; duas tools + TOOLS_AGENDA</div>
+    </div>
+  </div>
+  <p class="lead">Um arquivo só. Sem recortar. O <code class="inline">graph.py</code> já importa <code class="inline">TOOLS_AGENDA</code> — se a lista tiver as duas tools, o agente passa a consultar sem mais nenhuma linha no grafo.</p>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">app/tools/agenda.py — arquivo completo</span>
+      <div class="code-right"><span class="lbadge">colar inteiro</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">from typing import Optional, List
+from langchain.tools import tool
+from pydantic import BaseModel, Field
+
+# A conexão com o Postgres agora vem de um lugar só (antes era uma get_conn()
+# local, idêntica à de financeiro.py).
+from app.tools.db import get_conn
+
+
+class AddEventArgs(BaseModel):
+    title: str = Field(..., description=&quot;Título do evento.&quot;)
+    source_text: str = Field(..., description=&quot;Texto original do usuário.&quot;)
+    start_time: str = Field(..., description=&quot;Início do evento em ISO 8601 (ex.: &#x27;2025-06-10T14:00:00-03:00&#x27;). Obrigatório.&quot;)
+    end_time: Optional[str] = Field(
+        default=None,
+        description=&quot;Fim do evento em ISO 8601. Opcional.&quot;
+    )
+    location: Optional[str] = Field(default=None, description=&quot;Local do evento (ex.: &#x27;Sala 3&#x27;, &#x27;Zoom&#x27;, &#x27;Rua X, 100&#x27;).&quot;)
+    notes: Optional[str] = Field(default=None, description=&quot;Observações adicionais sobre o evento.&quot;)
+
+
+@tool(&quot;add_event&quot;, args_schema=AddEventArgs)
+def add_event(
+    title: str,
+    source_text: str,
+    start_time: str,
+    end_time: Optional[str] = None,
+    location: Optional[str] = None,
+    notes: Optional[str] = None,
+) -&gt; dict:
+    &quot;&quot;&quot;Insere um evento/compromisso na agenda (tabela events) do banco de dados Postgres.&quot;&quot;&quot;
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            &quot;&quot;&quot;
+            INSERT INTO events
+                (title, start_time, end_time, location, notes, source_text)
+            VALUES
+                (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s)
+            RETURNING id, start_time, end_time;
+            &quot;&quot;&quot;,
+            (title, start_time, end_time, location, notes, source_text),
+        )
+        new_id, start, end = cur.fetchone()
+        conn.commit()
+        return {
+            &quot;status&quot;: &quot;ok&quot;,
+            &quot;id&quot;: new_id,
+            &quot;title&quot;: title,
+            &quot;start_time&quot;: str(start),
+            &quot;end_time&quot;: str(end) if end else None,
+        }
+    except Exception as e:
+        conn.rollback()
+        return {&quot;status&quot;: &quot;error&quot;, &quot;message&quot;: str(e)}
+    finally:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+
+#############
+# NOVA TOOL #
+#############
+
+class QueryEventsArgs(BaseModel):
+    text: Optional[str] = Field(
+        default=None,
+        description=&quot;Texto para busca em title, location, notes OU source_text (ex.: &#x27;dentista&#x27;, &#x27;Marcos&#x27;).&quot;
+    )
+    date_local: Optional[str] = Field(
+        default=None,
+        description=&quot;Data local (YYYY-MM-DD) em America/Sao_Paulo para filtrar o dia.&quot;
+    )
+    date_from_local: Optional[str] = Field(
+        default=None,
+        description=&quot;Data local inicial (YYYY-MM-DD) inclusive.&quot;
+    )
+    date_to_local: Optional[str] = Field(
+        default=None,
+        description=&quot;Data local final (YYYY-MM-DD) inclusive.&quot;
+    )
+    limit: int = Field(default=20, ge=1, le=200, description=&quot;Máximo de registros retornados (1..200).&quot;)
+
+
+@tool(&quot;query_events&quot;, args_schema=QueryEventsArgs)
+def query_events(
+    text: Optional[str] = None,
+    date_local: Optional[str] = None,
+    date_from_local: Optional[str] = None,
+    date_to_local: Optional[str] = None,
+    limit: int = 20,
+) -&gt; dict:
+    &quot;&quot;&quot;
+    Consulta eventos da agenda (tabela events) com filtros por texto e datas locais (America/Sao_Paulo).
+    Use esta tool ANTES de confirmar disponibilidade ou conflito.
+    Ordenação:
+      - Intervalo (date_from_local/date_to_local): ASC (cronológico).
+      - Caso contrário: ASC também (próximos compromissos primeiro a partir do filtro).
+    &quot;&quot;&quot;
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        if date_local and (date_from_local or date_to_local):
+            return {&quot;status&quot;: &quot;error&quot;, &quot;message&quot;: &quot;Use date_local OU (date_from_local/date_to_local), não ambos.&quot;}
+
+        where_sql = &quot;WHERE 1=1&quot;
+        params: dict = {&quot;limit&quot;: limit}
+
+        if text:
+            where_sql += (
+                &quot; AND (e.title ILIKE %(text_like)s&quot;
+                &quot; OR e.location ILIKE %(text_like)s&quot;
+                &quot; OR e.notes ILIKE %(text_like)s&quot;
+                &quot; OR e.source_text ILIKE %(text_like)s)&quot;
+            )
+            params[&quot;text_like&quot;] = f&quot;%{text}%&quot;
+
+        if date_local:
+            where_sql += (
+                &quot; AND e.start_time &gt;= (%(date_local)s::date AT TIME ZONE &#x27;America/Sao_Paulo&#x27;)&quot;
+                &quot; AND e.start_time &lt;  ((%(date_local)s::date + INTERVAL &#x27;1 day&#x27;) AT TIME ZONE &#x27;America/Sao_Paulo&#x27;)&quot;
+            )
+            params[&quot;date_local&quot;] = date_local
+        else:
+            if date_from_local:
+                where_sql += &quot; AND e.start_time &gt;= (%(date_from)s::date AT TIME ZONE &#x27;America/Sao_Paulo&#x27;)&quot;
+                params[&quot;date_from&quot;] = date_from_local
+            if date_to_local:
+                where_sql += &quot; AND e.start_time &lt; ((%(date_to)s::date + INTERVAL &#x27;1 day&#x27;) AT TIME ZONE &#x27;America/Sao_Paulo&#x27;)&quot;
+                params[&quot;date_to&quot;] = date_to_local
+
+        sql = f&quot;&quot;&quot;
+            SELECT
+              e.id,
+              e.title,
+              e.start_time,
+              e.end_time,
+              e.location,
+              e.notes,
+              e.source_text,
+              e.recorded_at
+            FROM events e
+            {where_sql}
+            ORDER BY e.start_time ASC
+            LIMIT %(limit)s;
+        &quot;&quot;&quot;
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+
+        results: List[dict] = []
+        for r in rows:
+            results.append({
+                &quot;id&quot;: r[0],
+                &quot;title&quot;: r[1],
+                &quot;start_time&quot;: str(r[2]),
+                &quot;end_time&quot;: str(r[3]) if r[3] else None,
+                &quot;location&quot;: r[4],
+                &quot;notes&quot;: r[5],
+                &quot;source_text&quot;: r[6],
+                &quot;recorded_at&quot;: str(r[7]),
+            })
+
+        return {&quot;status&quot;: &quot;ok&quot;, &quot;count&quot;: len(results), &quot;results&quot;: results}
+
+    except Exception as e:
+        return {&quot;status&quot;: &quot;error&quot;, &quot;message&quot;: str(e)}
+    finally:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+
+# Exporta a lista de tools
+TOOLS_AGENDA = [add_event, query_events]
+</div>
+  </div>
+  <div class="callout co-ok">
+    <div class="ct">O que tem dentro</div>
+    <p><code>add_event</code> — INSERT, já conhecida. <code>query_events</code> — SELECT com texto e datas em America/Sao_Paulo, no mesmo espírito de <code>query_transactions</code>. No fim: <code>TOOLS_AGENDA = [add_event, query_events]</code>.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="Como a consulta funciona">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-a">bloco A · agenda.py</div>
+  <h2 class="sec-title">query_events: o SELECT que o prompt <span style="color:var(--cyan)">já esperava</span></h2>
+  <p class="lead">Filtros iguais aos de finanças, campo de tempo é <code class="inline">start_time</code>, fuso <code class="inline">America/Sao_Paulo</code>. Sem filtro de data, lista os compromissos em ordem cronológica.</p>
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;">
+    <table class="tbl">
+      <thead><tr><th>Argumento</th><th>O que faz</th></tr></thead>
+      <tbody>
+        <tr><td><code>text</code></td><td>ILIKE em title, location, notes e source_text</td></tr>
+        <tr><td><code>date_local</code></td><td>Um dia só (YYYY-MM-DD)</td></tr>
+        <tr><td><code>date_from_local</code> / <code>date_to_local</code></td><td>Intervalo inclusive. Não misture com date_local</td></tr>
+        <tr><td><code>limit</code></td><td>1 a 200, padrão 20</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">Não confirme vago</div>
+    <p>O prompt manda: nunca diga “você está livre” sem chamar <code>query_events</code>. Se a tool voltar lista vazia, aí sim pode afirmar que não há compromisso naquele filtro.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="O prompt também muda">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-a">bloco A · prompts.py</div>
+  <div class="step-marker">
+    <div class="step-num">2</div>
+    <div class="step-meta">
+      <div class="step-file">app/prompts.py — AGENDA_PROMPT e os exemplos</div>
+      <div class="step-obj">colar o agenda.py NÃO basta: a tool existe e o modelo não chama</div>
+    </div>
+  </div>
+  <p class="lead">Este slide nasceu de um bug real, encontrado enquanto o professor testava. A tool <code class="inline">add_event</code> estava perfeita, o Postgres no ar, e ainda assim o Assessor respondia “registrei” <strong style="color:var(--text)">sem gravar nada</strong>. O erro não estava no Python: estava no prompt.</p>
+
+  <div class="callout co-err" style="margin-bottom:18px;">
+    <div class="ct">O rastro do agente — leia a última linha</div>
+    <p>Pergunta: <em>“tenho um evento na quinta às 15h, reunião com o Marcos”</em>. O agente chamou <code>query_events</code>, viu o dia livre… e parou:</p>
+  </div>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">o que o agente fez ANTES da correção</span>
+      <div class="code-right"><span class="lbadge">bug</span><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code"><span class="c"># 1) consultou o banco — certo</span>
+tool_call: query_events(date_local=<span class="s">"2026-09-24"</span>)
+tool:      {<span class="s">"status"</span>: <span class="s">"ok"</span>, <span class="s">"count"</span>: 0, <span class="s">"results"</span>: []}
+
+<span class="c"># 2) e respondeu isto. NENHUMA chamada a add_event:</span>
+{<span class="s">"dominio"</span>:<span class="s">"agenda"</span>,<span class="s">"intencao"</span>:<span class="s">"criar"</span>,
+ <span class="s">"resposta"</span>:<span class="o">"Posso criar 'Reunião com o Marcos' em 2026-09-24 15:00–16:00."</span>,
+ <span class="s">"recomendacao"</span>:<span class="o">"Confirmo o registro?"</span>}
+
+<span class="c"># O orquestrador transformou isso numa frase afirmativa.</span>
+<span class="c"># O usuário leu "salvei". O banco continuou vazio.</span>
+</div>
+  </div>
+
+  <h3 class="slide-h3" style="margin:22px 0 10px;">Por que ele fez isso? Porque nós ensinamos.</h3>
+  <p class="lead">O <code class="inline">AGENDA_SHOT_2</code> — o few-shot de criação de evento — era <em>exatamente</em> aquele texto: “Posso criar… Confirmo o registro?”. O exemplo mostrava o agente <strong style="color:var(--orange)">propondo</strong> o evento, nunca gravando. O modelo copiou o exemplo, como devia.</p>
+  <div class="yn" style="margin-bottom:18px;">
+    <div class="yn-col yn-no">
+      <h4 style="color:var(--orange)">O que o prompt tinha</h4>
+      <ul>
+        <li>Shot de criar sem <strong>nenhuma</strong> chamada de tool</li>
+        <li>Sem campo <code>escrita</code> na saída — nada para carregar o <code>id</code> do banco</li>
+        <li>Nenhuma regra proibindo dizer “registrei” sem retorno</li>
+        <li>Comparem: o <code>FINANCEIRO_SHOT_2</code> já trazia <code>"escrita":{"operacao":"adicionar","id":...}</code></li>
+      </ul>
+    </div>
+    <div class="yn-col yn-yes">
+      <h4 style="color:var(--green)">O que passa a ter</h4>
+      <ul>
+        <li>Seção <strong>GRAVAÇÃO</strong> com o fluxo obrigatório de 4 passos</li>
+        <li>Campo <code>escrita</code> com <code>id</code> real e <code>google:"ok|falhou"</code></li>
+        <li>Regra: só afirmar registro se <code>add_event</code> devolveu <code>status:"ok"</code></li>
+        <li>Shots 1, 2 e 3 reescritos <strong>mostrando as tool calls</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">app/prompts.py — bloco novo, dentro de AGENDA_PROMPT (depois de ### REGRAS)</span>
+      <div class="code-right"><span class="lbadge">colar</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">### GRAVAÇÃO — LEIA ANTES DE RESPONDER "criar"
+Se o usuário informar um compromisso ("tenho reunião quinta às 15h", "marca X
+amanhã"), isso JÁ É a ordem de registrar. NÃO pergunte "confirmo o registro?":
+chame `add_event` na mesma resposta.
+
+Você só pode escrever no campo "resposta" que o evento foi registrado se
+`add_event` tiver devolvido `status: "ok"` com um `id`. Sem esse retorno, o
+evento NÃO existe no banco — dizer que existe é mentir para o usuário.
+
+Fluxo obrigatório ao criar:
+  1. `query_events` no dia pedido (checar conflito).
+  2. `add_event` com o `start_time` em ISO 8601 COM fuso (ex.: 2026-09-24T15:00:00-03:00).
+  3. `add_google_event` com os mesmos dados.
+  4. JSON final com "escrita":{{"operacao":"adicionar","id":&lt;id devolvido&gt;}}.
+
+Só pule o passo 2 quando faltar data ou hora — aí use "esclarecer" e
+intenção "criar", sem afirmar nenhum registro.
+</div>
+  </div>
+
+  <div class="callout co-info">
+    <div class="ct">Atenção às chaves duplas</div>
+    <p><code>AGENDA_PROMPT</code> é uma <strong style="color:var(--text)">f-string</strong>. Todo <code>{</code> literal de JSON tem que virar <code>{{</code> e <code>}</code> virar <code>}}</code>, senão o Python tenta interpretar como campo de formatação e o import quebra. Isso vale para o bloco acima e para o campo <code>escrita</code>.</p>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">app/prompts.py — dois ajustes: campo escrita + AGENDA_SHOT_2 reescrito</span>
+      <div class="code-right"><span class="lbadge">substituir</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code"><span class="c"># 1) em ### SAÍDA (JSON), na lista de campos opcionais, acrescente:</span>
+  - escrita        : {{"operacao":"adicionar|atualizar|cancelar","id":123,"google":"ok|falhou"}}
+                     OBRIGATÓRIO sempre que você gravou algo — o "id" é o que
+                     `add_event` devolveu, nunca um número inventado.
+
+
+<span class="c"># 2) troque o AGENDA_SHOT_2 inteiro por este — agora ele MOSTRA a gravação:</span>
+AGENDA_SHOT_2 = <span class="s">"""</span>
+<span class="s">Roteador: ROUTE=agenda</span>
+<span class="s">PERGUNTA_ORIGINAL=[pedido para marcar evento com participante, data e duração]</span>
+<span class="s">Agenda: query_events(date_local="[YYYY-MM-DD]")</span>
+<span class="s">Tool: {"status":"ok","count":0,"results":[]}</span>
+<span class="s">Agenda: add_event(title="[título]", source_text="[pergunta original]", start_time="[YYYY-MM-DDTHH:MM:00-03:00]", end_time="[YYYY-MM-DDTHH:MM:00-03:00]")</span>
+<span class="s">Tool: {"status":"ok","id":[id gerado],"title":"[título]","start_time":"[datetime início]"}</span>
+<span class="s">Agenda: add_google_event(title="[título]", start_time="[YYYY-MM-DDTHH:MM:00-03:00]", end_time="[YYYY-MM-DDTHH:MM:00-03:00]")</span>
+<span class="s">Tool: {"status":"ok"}</span>
+<span class="s">Agenda: {"dominio":"agenda","intencao":"criar","resposta":"Registrei '[título]' em [data] [hora início]–[hora fim].","recomendacao":"[observação opcional]","escrita":{"operacao":"adicionar","id":[id gerado],"google":"ok"}}"""</span>
+</div>
+  </div>
+
+  <div class="callout co-ok">
+    <div class="ct">A lição que vale mais que o código</div>
+    <p>Few-shot <strong style="color:var(--text)">não é decoração, é comportamento</strong>. O modelo imita o formato <em>e</em> a sequência de ações do exemplo. Se o exemplo não chama tool, o modelo não chama tool — por mais que a seção TAREFAS mande registrar. Instrução em prosa perde de exemplo concreto.</p>
+    <p>E o pior tipo de bug apareceu aqui: <strong style="color:var(--text)">silencioso</strong>. Nada de exceção, nada de traceback, log limpo. Só o usuário acreditando que tem uma reunião marcada. Peça para a turma conferir o banco, não a resposta do chat.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="Teste da agenda local">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-c">bloco A · teste</div>
+  <h2 class="sec-title">Antes do Google: a agenda <span style="color:var(--green)">no banco</span></h2>
+  <div class="test-box">
+    <div class="tt">▸ No chat do Assessor — as duas tools são <code>@tool</code> internas, sem MCP</div>
+    <table class="qa">
+      <thead><tr><th>#</th><th>O que você pergunta</th><th>Resposta esperada</th></tr></thead>
+      <tbody>
+        <tr><td class="n">1</td><td><span class="voce">o que eu tenho na agenda?</span></td><td><span class="ok">Chama query_events</span> e lista o que está no Postgres (dentista, Marcos, Henry…).</td></tr>
+        <tr><td class="n">2</td><td><span class="voce">tenho dentista?</span></td><td><span class="ok">query_events com text=dentista</span> — 1 resultado em 21/08/2026.</td></tr>
+        <tr><td class="n">3</td><td><span class="voce">marca reunião com a coordenação amanhã às 14h</span></td><td><span class="ok">add_event</span> no banco. Ainda <span class="nao">não</span> exige Google — isso é o bloco B.</td></tr>
+        <tr><td class="n">4</td><td><span class="voce">o que eu tenho amanhã?</span></td><td><span class="ok">query_events no dia</span> — tem que aparecer o que você acabou de criar.</td></tr>
+        <tr><td class="n">5</td><td>Confira <strong>no banco</strong>, não no chat</td><td><span class="ok">SELECT na tabela events</span> — o id do teste 3 tem que estar lá. Ver a resposta bonita no chat <span class="nao">não</span> é prova de gravação.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">a prova real — o que o chat diz não conta</span>
+      <div class="code-right"><span class="lbadge">obrigatório</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">docker exec -it pg psql -U postgres -d assessor_db \
+  -c <span class="s">"SELECT id, title, start_time FROM events ORDER BY id DESC LIMIT 5;"</span>
+</div>
+  </div>
+  <div class="callout co-ok" style="margin-top:16px;">
+    <div class="ct">Checkpoint A</div>
+    <p>Se a 1 e a 4 funcionam <strong style="color:var(--text)">e a 5 confirma o id</strong>, o aluno fechou o buraco do prompt. Só então entra o MCP externo — senão misturam “a consulta não vai” com “o Google não autenticou”.</p>
+    <p>Se a 3 responde “registrei” mas a 5 não mostra nada, o aluno pulou as mudanças do <code>prompts.py</code>. Volte dois slides.</p>
+  </div>
+  <div class="callout co-info">
+    <div class="ct">Aqui ainda não tem MCP</div>
+    <p>Nada neste teste passa pelo protocolo. O grafo importa <code>TOOLS_AGENDA</code> e chama a função no mesmo processo Python — function calling comum, igual às tools de finanças da Etapa 2. MCP entra só no bloco B, com o Google.</p>
+    <p><strong style="color:var(--text)">Extra opcional:</strong> as mesmas duas capacidades também foram publicadas no <code>app/mcp_server.py</code> da aula passada, então o Cursor consegue consultar a tabela <code>events</code> por fora. É uma segunda porta para o mesmo SQL — o chat do Assessor não usa esse caminho.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="O Assessor vira cliente">
+<div class="slide-inner slide-scroll">
+  <span class="ptag">bloco B · começa a teoria</span>
+  <h2 class="sec-title">Agora o Assessor está do <span style="color:var(--orange)">outro lado</span> da tomada</h2>
+  <p class="lead">Etapa 5: vocês <em>produziram</em> o protocolo. Etapa 5.2: vocês <em>consomem</em> um serviço de outra empresa. Antes do código: como isso seria num produto, o que o professor já fez no Cloud, e por que a aula é só Python — sem <code class="inline">npx</code>.</p>
+  <div class="agflow" style="margin-bottom:18px;">
+    <div class="agnode has">
+      <span class="an-name">Host Assessor</span>
+      O grafo + o modelo. Decide chamar tools.
+    </div>
+    <div class="agnode has">
+      <span class="an-name">Cliente MCP</span>
+      <code>calendario_google.py</code> fala JSON-RPC com o servidor deles.
+    </div>
+    <div class="agnode hasnt">
+      <span class="an-name">Servidor de calendário</span>
+      Um MCP que nós não escrevemos. O catálogo oficial é HTTP. A gravação na aula usa o mesmo token OAuth, em Python.
+    </div>
+  </div>
+  <div class="callout co-err">
+    <div class="ct">Por que não google-api-python-client direto?</div>
+    <p>Dá. É a mesma pergunta da cotação. O ponto da disciplina é o <strong style="color:var(--text)">contrato</strong>: amanhã o servidor pode ser o Calendar da Google, o Outlook da Microsoft ou o de um colega — o cliente MCP não reescreve a integração. A lib Python amarra vocês a um SDK.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="No mundo real">
+<div class="slide-inner slide-scroll">
+  <span class="ptag">teoria · produto</span>
+  <h2 class="sec-title">Num app de verdade, <span style="color:var(--cyan)">quem é o usuário</span>?</h2>
+  <p class="lead">Imaginem o Assessor no ar, com mil contas. Um único servidor FastAPI atende todo mundo. O calendário de cada pessoa é o Gmail dela. A máquina deixa de identificar o aluno — o <strong style="color:var(--text)">login</strong> identifica.</p>
+  <div class="ciclo" style="margin-bottom:18px;">
+    <div class="ci-step ci-a"><span class="ci-n">1</span><span class="ci-t">Login no Assessor</span>O usuário entra com e-mail/senha ou Google. O backend emite um JWT / sessão. Cada request carrega <code>user_id</code>.</div>
+    <div class="ci-step ci-b"><span class="ci-n">2</span><span class="ci-t">Conectar o Calendar</span>Um botão “Vincular Google”. O browser abre o OAuth da Google (tipo <strong>Web</strong>, com redirect URI do Assessor). A pessoa autoriza.</div>
+    <div class="ci-step ci-c"><span class="ci-n">3</span><span class="ci-t">Token no servidor</span>O Assessor guarda <code>access_token</code> + <code>refresh_token</code> <em>daquela pessoa</em> no banco, criptografados. Nunca no notebook do usuário.</div>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;">
+    <table class="tbl">
+      <thead><tr><th>Quando o usuário diz “marca reunião”</th><th>O que o backend faz</th></tr></thead>
+      <tbody>
+        <tr><td>1. Identidade</td><td>Lê o JWT. Sabe que é a Maria, não o João.</td></tr>
+        <tr><td>2. Banco próprio</td><td>Chama <code>add_event</code> no Postgres dela (ou com <code>user_id</code> na linha).</td></tr>
+        <tr><td>3. Calendário dela</td><td>Pega o token da Maria e chama o MCP (oficial, HTTP) com <code>Authorization: Bearer …</code>.</td></tr>
+        <tr><td>4. Isolamento</td><td>O João, no mesmo servidor, nunca vê o token da Maria. Trocar de máquina não muda nada.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-info">
+    <div class="ct">Duas identidades, sempre</div>
+    <p>O <strong style="color:var(--text)">projeto no Google Cloud</strong> é o RG do aplicativo (um só, da empresa). O <strong style="color:var(--text)">OAuth no navegador</strong> é o RG da pessoa. Sem o primeiro, a Google não sabe quem está pedindo acesso. Sem o segundo, ela não sabe de quem é o calendário. Isso não muda na aula — só muda <em>onde</em> o token mora.</p>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">O que a aula NÃO vai implementar</div>
+    <p>JWT, tabela de tokens, cliente OAuth tipo Web, callback <code>/oauth2callback</code>, refresh automático. Dá para fazer — e é o caminho de um produto. Não cabe numa aula de MCP. A gente simula o mesmo contrato com um atalho: <strong style="color:var(--text)">cada notebook é um usuário</strong>.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="O que o professor já fez">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-b">bloco B · Cloud, uma vez</div>
+  <h2 class="sec-title">Um app no Cloud. <span style="color:var(--orange)">Ninguém mais cria projeto</span>.</h2>
+  <p class="lead">O professor já registrou o Assessor na Google. Vocês <strong style="color:var(--text)">não entram</strong> no Cloud Console. Recebem um arquivo e autenticam a conta de vocês.</p>
+  <div class="ciclo" style="margin-bottom:16px;">
+    <div class="ci-step ci-a"><span class="ci-n">1</span><span class="ci-t">Projeto</span><code>assessor-agenda</code> no Google Cloud. Calendar API ligada.</div>
+    <div class="ci-step ci-b"><span class="ci-n">2</span><span class="ci-t">Consentimento</span>App “Assessor Agenda”, público Externo, em modo <em>Testing</em>. Escopos de Calendar.</div>
+    <div class="ci-step ci-c"><span class="ci-n">3</span><span class="ci-t">Cliente Desktop</span>Tipo <strong>App para computador</strong> — não Web. JSON baixado: <code>gcp-oauth.keys.json</code>.</div>
+  </div>
+  <div class="yn" style="margin-bottom:16px;">
+    <div class="yn-col yn-no">
+      <h4 style="color:var(--orange)">O JSON NÃO é a sua conta</h4>
+      <ul>
+        <li>É o RG do <em>programa</em> (client_id + secret)</li>
+        <li>O mesmo arquivo serve para a turma inteira</li>
+        <li>Não dá acesso ao calendário de ninguém sozinho</li>
+      </ul>
+    </div>
+    <div class="yn-col yn-yes">
+      <h4 style="color:var(--green)">O login no Chrome é a sua conta</h4>
+      <ul>
+        <li>Você escolhe o Gmail e clica em Permitir</li>
+        <li>O token fica só na sua máquina</li>
+        <li>O evento cai no <em>seu</em> calendar.google.com</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">Por que não publicamos o app</div>
+    <p>Publicar em produção Externa exige site + política de privacidade verificados. Para a disciplina, o modo <em>Testing</em> basta: o professor cadastra os Gmails da turma em <strong style="color:var(--text)">Test users</strong> antes da aula. Sem isso o Chrome devolve <code>403 access_denied</code>. O token de teste dura 7 dias — se expirar, roda o comando de auth de novo.</p>
+  </div>
+  <div class="callout co-err">
+    <div class="ct">Não versionem o JSON</div>
+    <p>Ele tem um <code>client_secret</code>. O <code>.gitignore</code> do projeto já ignora <code>gcp-oauth.keys.json</code>. Se for parar no GitHub público, a Google invalida a credencial e a aula seguinte para para todo mundo.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="MCP sem mágica: tools/list">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-b">bloco B · descoberta</div>
+  <h2 class="sec-title">Antes de escrever código: <span style="color:var(--cyan)">pergunte ao servidor</span></h2>
+  <p class="lead">O melhor jeito de acreditar que MCP não é mágica é falar com o servidor da Google <strong style="color:var(--text)">na mão</strong>. Um POST. Sem SDK, sem token, sem instalar nada. Neste servidor, o <code class="inline">tools/list</code> responde sem autenticação: é o catálogo, não os dados.</p>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">PowerShell — Python, para o JSON não quebrar</span>
+      <div class="code-right"><span class="lbadge">ao vivo na aula</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">python -c "import httpx; r=httpx.post('https://calendarmcp.googleapis.com/mcp/v1', headers={'content-type':'application/json','accept':'application/json, text/event-stream'}, json={'jsonrpc':'2.0','id':1,'method':'tools/list'}); print([t['name'] for t in r.json()['result']['tools']])"
+</div>
+  </div>
+  <div class="callout co-warn" style="margin-bottom:14px;">
+    <div class="ct">Não use curl no PowerShell</div>
+    <p>No Windows, <code>curl</code> é apelido de <code>Invoke-WebRequest</code>. As aspas do JSON se perdem e a Google responde <code>-32700 JSON Parse error</code>. O comando acima manda o JSON certo. Se quiser curl de verdade: <code>curl.exe</code> e o corpo em um arquivo <code>.json</code>.</p>
+  </div>
+  <p class="lead" style="margin-top:14px;">Volta <code class="inline">200</code> com as 9 tools do Calendar. Recortado, o <code class="inline">create_event</code> chega assim:</p>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">resposta da Google — recortada</span>
+      <div class="code-right"><span class="lbadge">saída real</span><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">{
+  <span class="s">"jsonrpc"</span>: <span class="s">"2.0"</span>, <span class="s">"id"</span>: 1,
+  <span class="s">"result"</span>: { <span class="s">"tools"</span>: [
+    {
+      <span class="s">"name"</span>: <span class="o">"create_event"</span>,
+      <span class="s">"description"</span>: <span class="s">"Creates an event on the given calendar..."</span>,
+      <span class="s">"annotations"</span>: {
+        <span class="s">"title"</span>: <span class="s">"Creates a calendar event."</span>,
+        <span class="s">"readOnlyHint"</span>: false,       <span class="c">// escreve</span>
+        <span class="s">"destructiveHint"</span>: false,    <span class="c">// mas não destrói</span>
+        <span class="s">"idempotentHint"</span>: false,
+        <span class="s">"openWorldHint"</span>: false
+      },
+      <span class="s">"inputSchema"</span>: {
+        <span class="s">"required"</span>: [<span class="s">"summary"</span>, <span class="s">"startTime"</span>, <span class="s">"endTime"</span>],
+        <span class="s">"properties"</span>: { <span class="s">"summary"</span>: {...}, <span class="s">"startTime"</span>: {...}, <span class="c">/* +20 campos */</span> }
+      }
+    }
+  ]}
+}
+</div>
+  </div>
+  <div class="callout co-ok" style="margin-top:16px;">
+    <div class="ct">Reconheceram? É o que vocês escreveram na etapa passada</div>
+    <p><code>name</code>, <code>description</code>, <code>inputSchema</code>, <code>annotations</code> com <code>readOnlyHint</code> e <code>destructiveHint</code>. <strong style="color:var(--text)">Exatamente</strong> o mesmo contrato do <code>app/mcp_server.py</code> de vocês, com as mesmas anotações que vocês puseram no <code>LEITURA</code> e no <code>ESCRITA</code>. A Google é uma empresa de bilhões e fala o protocolo que a turma implementou em 40 linhas.</p>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;margin:16px 0;">
+    <table class="tbl">
+      <thead><tr><th>Tool do Calendar</th><th>readOnly</th><th>destructive</th></tr></thead>
+      <tbody>
+        <tr><td><code>list_events</code>, <code>get_event</code>, <code>list_calendars</code>, <code>search_events</code>, <code>suggest_time</code></td><td><span class="ok">true</span></td><td>false</td></tr>
+        <tr><td><code>create_event</code>, <code>update_event</code>, <code>respond_to_event</code></td><td><span class="nao">false</span></td><td>false</td></tr>
+        <tr><td><code>delete_event</code></td><td><span class="nao">false</span></td><td><span class="nao">true</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">Agora tente CHAMAR sem token</div>
+    <p>Neste servidor da Google, <code>tools/list</code> pode ser chamado sem autenticação, enquanto executar operações sobre o calendário exige OAuth. Isso é uma <strong style="color:var(--text)">decisão do servidor</strong>; o MCP não obriga <code>tools/list</code> a ser público.</p>
+    <p>Na prática: um <code>tools/call</code> sem Bearer devolve <strong style="color:var(--text)">401 no HTTP</strong> — falta de credencial na camada de transporte. <code>isError</code> é outra coisa: aparece no <em>resultado</em> de uma chamada MCP já autenticada (ou rejeitada pelo servidor MCP). Não misture as duas camadas.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="stdio ou HTTP?">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-b">bloco B · transporte</div>
+  <h2 class="sec-title">Duas portas para o mesmo calendário: <span style="color:var(--orange)">stdio</span> ou <span style="color:var(--cyan)">HTTP</span></h2>
+  <p class="lead">stdio existe — é assim que o Cursor fala com o <code class="inline">mcp_server.py</code> de vocês. A aula do Calendar, porém, fica no HTTP: o aluno já tem Python, e o servidor oficial da Google é uma URL.</p>
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;">
+    <table class="tbl">
+      <thead><tr><th></th><th>Oficial · streamable HTTP</th><th>Comunitário · stdio</th></tr></thead>
+      <tbody>
+        <tr><td>Quem mantém</td><td>Google</td><td><code>@cocal/google-calendar-mcp</code>, terceiros</td></tr>
+        <tr><td>Onde roda</td><td>Servidor da Google</td><td>Processo filho na máquina do aluno</td></tr>
+        <tr><td>Instala o quê</td><td><span class="ok">Nada</span></td><td>Node + <code>npx</code> baixando o pacote</td></tr>
+        <tr><td>Tempo da 1ª chamada</td><td><span class="ok">&lt; 1s</span></td><td><span class="nao">~60s</span> (npx frio)</td></tr>
+        <tr><td><code>tools/list</code> sem credencial</td><td><span class="ok">Funciona</span></td><td><span class="nao">Nem inicia</span> — o processo morre</td></tr>
+        <tr><td>Login</td><td>Token OAuth você obtém e passa no header</td><td><span class="ok">Ele abre o navegador</span> e guarda o token</td></tr>
+        <tr><td>Porta de entrada</td><td>Programa de <strong>Developer Preview</strong> do Workspace</td><td><span class="ok">Qualquer conta</span> Google + cliente OAuth Desktop</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-info">
+    <div class="ct">Na aula o caminho é Python</div>
+    <p>O <code>tools/list</code> oficial (slide anterior) mostra o contrato sem login. O login é <code>autenticar()</code> em Python. A gravação tenta o MCP oficial e, se o serviço MCP não estiver ligado no Cloud, usa a Calendar API com o <strong style="color:var(--text)">mesmo token</strong>. Nenhum dos dois instala Node.</p>
+  </div>
+  <div class="callout co-ok">
+    <div class="ct">O que isso ensina</div>
+    <p>Trocar de transporte não muda o handshake: <code>initialize</code>, <code>call_tool</code>, ler o resultado. Só muda quem entrega os bytes. <strong style="color:var(--text)">O código da aula, daqui para a frente, usa só HTTP.</strong> O <code>@cocal</code> fica neste slide — exemplo de servidor MCP em Node + stdio, não dependência da turma.</p>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">O protocolo não padroniza o vocabulário</div>
+    <p>Cuidado com “MCP é plug and play”. Dois servidores podem criar o mesmo evento com contratos diferentes — por isso o <code>tools/list</code> vem antes do cliente:</p>
+    <div class="card" style="padding:0;overflow:hidden;margin:12px 0;">
+      <table class="tbl">
+        <thead><tr><th></th><th>Oficial</th><th>Comunitário</th></tr></thead>
+        <tbody>
+          <tr><td>Nome da tool</td><td><code>create_event</code></td><td><code>create-event</code></td></tr>
+          <tr><td>Título</td><td><code>summary</code></td><td><code>summary</code></td></tr>
+          <tr><td>Horários</td><td><code>startTime</code> / <code>endTime</code></td><td><code>start</code> / <code>end</code></td></tr>
+          <tr><td>Formato da hora</td><td>ISO <strong>com</strong> offset</td><td>ISO <strong>sem</strong> offset + <code>timeZone</code></td></tr>
+          <tr><td>Calendário</td><td>opcional</td><td><code>calendarId</code> <strong>obrigatório</strong></td></tr>
+          <tr><td>Total de tools</td><td>9</td><td>13</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>O MCP padroniza <em>como</em> descobrir o que existe e <em>como</em> chamar. O schema de cada tool continua sendo decisão de quem escreveu o servidor.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="Dois destinos, um pedido">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-b">bloco B · Google Calendar</div>
+  <h2 class="sec-title">Um “marca reunião” <span style="color:var(--cyan)">duas mãos</span></h2>
+  <p class="lead">O aluno pede um compromisso. O agente grava no Postgres <em>e</em> no calendário da conta Google pessoal. Se o Google falhar, o banco permanece — a resposta admite os dois lados.</p>
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;">
+    <table class="tbl">
+      <thead><tr><th>Tool</th><th>Onde grava</th><th>Quem implementou</th></tr></thead>
+      <tbody>
+        <tr><td><code>add_event</code></td><td>Postgres · tabela events</td><td>vocês · <code>@tool</code></td></tr>
+        <tr><td><code>query_events</code></td><td>Postgres · só lê</td><td>vocês · <code>@tool</code></td></tr>
+        <tr><td><code>add_google_event</code></td><td>Google Calendar da conta</td><td>Google (MCP) · vocês só são o cliente</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-info">
+    <div class="ct">Ordem no prompt</div>
+    <p>Ao criar: <code>add_event</code> primeiro, <code>add_google_event</code> depois, com os mesmos título e horários. Consultar disponibilidade continua só no banco — o Google não substitui o <code>query_events</code> desta etapa.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="Anatomia de um cliente MCP">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-b">bloco B · como se escreve</div>
+  <h2 class="sec-title">O que o cliente faz, <span style="color:var(--cyan)">em quatro passos</span></h2>
+  <p class="lead">Não é mágica. O arquivo <code class="inline">calendario_google.py</code> só faz isto, nesta ordem, quando o agente chama <code class="inline">add_google_event</code>:</p>
+  <div class="ciclo" style="margin-bottom:16px;">
+    <div class="ci-step ci-a"><span class="ci-n">1</span><span class="ci-t">Login</span><code>autenticar()</code> já abriu o Chrome uma vez. O token fica em <code>google-calendar.token.json</code>.</div>
+    <div class="ci-step ci-b"><span class="ci-n">2</span><span class="ci-t">Handshake</span>Abre uma sessão HTTP com a URL da Google e manda <code>initialize</code> — o “olá” do protocolo MCP.</div>
+    <div class="ci-step ci-c"><span class="ci-n">3</span><span class="ci-t">Chamada</span>Pede a tool <code>create_event</code> com título e horários. É o mesmo contrato do <code>tools/list</code>.</div>
+    <div class="ci-step ci-a"><span class="ci-n">4</span><span class="ci-t">Plano B</span>Se a Google responder <strong>403</strong> (serviço MCP desligado no Cloud), o mesmo token grava na Calendar API comum.</div>
+  </div>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">passos 2 e 3 — o SDK em quatro linhas</span>
+      <div class="code-right"><span class="lbadge">código da aula</span><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code"><span class="c"># 2. abre o cano HTTP com a Google</span>
+<span class="k">async with</span> streamable_http_client(GOOGLE_CALENDAR_MCP_URL, http_client=client) <span class="k">as</span> streams:
+    read, write = streams[0], streams[1]
+    <span class="k">async with</span> ClientSession(read, write) <span class="k">as</span> session:
+        <span class="k">await</span> session.initialize()          <span class="c"># 2. olá, aqui é um cliente MCP</span>
+        result = <span class="k">await</span> session.call_tool(     <span class="c"># 3. executa a tool do catálogo</span>
+            <span class="s">"create_event"</span>, argumentos)
+</div>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;margin:16px 0;">
+    <table class="tbl">
+      <thead><tr><th>Função no arquivo</th><th>Qual passo</th></tr></thead>
+      <tbody>
+        <tr><td><code>autenticar()</code></td><td>1 · abre o Chrome, grava o token</td></tr>
+        <tr><td><code>_chamar_via_http()</code></td><td>2 e 3 · o cliente MCP de verdade</td></tr>
+        <tr><td><code>_criar_via_rest()</code></td><td>4 · plano B na Calendar API</td></tr>
+        <tr><td><code>add_google_event</code></td><td>A tool do agente: tenta 2–3; se 403, faz 4</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-info">
+    <div class="ct">Por que existe o passo 4</div>
+    <p>O catálogo (<code>tools/list</code>) responde sem ligar nada no Cloud. <em>Gravar</em> pelo MCP oficial exige o serviço <strong style="color:var(--text)">Calendar MCP API</strong>, ainda em preview. Sem ele a Google devolve 403. A Calendar API clássica já está ligada no projeto do professor: o mesmo token OAuth cria o evento lá. Os dois caminhos são HTTP em Python.</p>
+  </div>
+  <div class="callout co-ok">
+    <div class="ct">Erro do Google não derruba o banco</div>
+    <p>Se 2, 3 e 4 falharem, a tool devolve <code>{"status":"error", ...}</code> — não levanta exceção. O <code>add_event</code> já gravou no Postgres. Tool que fala com a internet <strong style="color:var(--text)">devolve erro, não levanta erro</strong>.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="config.py e .env">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-b">bloco B · config</div>
+  <div class="step-marker">
+    <div class="step-num b">3</div>
+    <div class="step-meta">
+      <div class="step-file">.env + app/config.py — três variáveis novas</div>
+      <div class="step-obj">a regra da etapa 2: ninguém lê o .env fora do config</div>
+    </div>
+  </div>
+  <p class="lead">O cliente do Calendar precisa de três nomes. Vocês <strong style="color:var(--text)">escrevem no <code class="inline">.env</code></strong> e <strong style="color:var(--text)">expõem no <code class="inline">config.py</code></strong>. O <code class="inline">calendario_google.py</code> só importa. Sem isto, o arquivo do próximo slide sobe e o login não acha o JSON.</p>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">.env — acrescente no final, sem apagar o que já tem</span>
+      <div class="code-right"><span class="lbadge">colar</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code"><span class="c"># Etapa 5.2 — Google Calendar MCP</span>
+GOOGLE_OAUTH_CREDENTIALS=gcp-oauth.keys.json
+GOOGLE_CALENDAR_MCP_URL=https://calendarmcp.googleapis.com/mcp/v1
+<span class="c"># GOOGLE_CALENDAR_ACCESS_TOKEN=</span>
+</div>
+  </div>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">app/config.py — logo abaixo das outras constantes</span>
+      <div class="code-right"><span class="lbadge">colar</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">GOOGLE_OAUTH_CREDENTIALS = os.getenv(
+    <span class="s">"GOOGLE_OAUTH_CREDENTIALS"</span>,
+    str(BASE_DIR / <span class="s">"gcp-oauth.keys.json"</span>),
+)
+GOOGLE_CALENDAR_MCP_URL = os.getenv(
+    <span class="s">"GOOGLE_CALENDAR_MCP_URL"</span>,
+    <span class="s">"https://calendarmcp.googleapis.com/mcp/v1"</span>,
+)
+GOOGLE_CALENDAR_ACCESS_TOKEN = os.getenv(<span class="s">"GOOGLE_CALENDAR_ACCESS_TOKEN"</span>)
+</div>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;margin:16px 0;">
+    <table class="tbl">
+      <thead><tr><th>Variável</th><th>O que faz</th><th>Na aula</th></tr></thead>
+      <tbody>
+        <tr><td><code>GOOGLE_OAUTH_CREDENTIALS</code></td><td>Caminho do JSON do professor</td><td>O arquivo na <strong>raiz</strong> do projeto. Nome relativo ao <code>BASE_DIR</code>.</td></tr>
+        <tr><td><code>GOOGLE_CALENDAR_MCP_URL</code></td><td>URL do servidor MCP oficial</td><td>A URL abaixo. O default do config é o mesmo, se alguém esquecer o <code>.env</code>.</td></tr>
+        <tr><td><code>GOOGLE_CALENDAR_ACCESS_TOKEN</code></td><td>Token pronto, sem OAuth</td><td><strong>Deixe vazio.</strong> O <code>autenticar()</code> grava <code>google-calendar.token.json</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">Não volte a usar os.getenv no cliente</div>
+    <p>A etapa 2 matou os seis <code>load_dotenv()</code> espalhados. Se o <code>calendario_google.py</code> ler o ambiente sozinho, o <code>.env</code> só existe se alguém importou o config antes — e a pergunta “de quais variáveis este projeto depende?” volta a exigir caçar arquivo por arquivo.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="calendario_google.py">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-b">bloco B · cliente</div>
+  <div class="step-marker">
+    <div class="step-num b">4</div>
+    <div class="step-meta">
+      <div class="step-file">app/tools/calendario_google.py — arquivo novo, cole inteiro</div>
+      <div class="step-obj">o Assessor como cliente MCP · a tool add_google_event</div>
+    </div>
+  </div>
+  <p class="lead">Arquivo novo, criado do zero nesta etapa. O nome da tool é <code class="inline">add_google_event</code> para não colidir com o <code class="inline">add_event</code> do Postgres — são dois destinos, e o prompt chama os dois em sequência.</p>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">app/tools/calendario_google.py — arquivo completo</span>
+      <div class="code-right"><span class="lbadge">colar inteiro</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">&quot;&quot;&quot;
+Cliente MCP do Google Calendar — só Python.
+
+O Assessor é CLIENTE de um servidor que nós não escrevemos: o MCP oficial
+da Google em https://calendarmcp.googleapis.com/mcp/v1 (streamable HTTP).
+
+O login é OAuth Desktop com google-auth-oauthlib. O Chrome abre, o aluno
+autoriza, o token fica em google-calendar.token.json na raiz do projeto.
+
+Como o SQL continua em agenda.py, este módulo NÃO grava no Postgres.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import asyncio
+import json
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Optional
+
+from langchain.tools import tool
+from pydantic import BaseModel, Field
+
+from app.config import (
+    BASE_DIR,
+    GOOGLE_CALENDAR_ACCESS_TOKEN,
+    GOOGLE_CALENDAR_MCP_URL,
+    GOOGLE_OAUTH_CREDENTIALS,
+)
+
+ESCOPOS = [
+    &quot;https://www.googleapis.com/auth/calendar&quot;,
+    &quot;https://www.googleapis.com/auth/calendar.events&quot;,
+]
+ARQUIVO_TOKEN = BASE_DIR / &quot;google-calendar.token.json&quot;
+
+CABECALHOS_MCP = {
+    &quot;content-type&quot;: &quot;application/json&quot;,
+    &quot;accept&quot;: &quot;application/json, text/event-stream&quot;,
+}
+
+
+def _credenciais_oauth() -&gt; Optional[str]:
+    if not GOOGLE_OAUTH_CREDENTIALS:
+        return None
+    caminho = Path(GOOGLE_OAUTH_CREDENTIALS)
+    if not caminho.is_absolute():
+        caminho = BASE_DIR / caminho
+    return str(caminho) if caminho.is_file() else None
+
+
+def _salvar_token(creds) -&gt; None:
+    ARQUIVO_TOKEN.write_text(creds.to_json(), encoding=&quot;utf-8&quot;)
+
+
+def _carregar_token():
+    &quot;&quot;&quot;Devolve Credentials válidas, renovando se o access_token expirou.&quot;&quot;&quot;
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+
+    if not ARQUIVO_TOKEN.is_file():
+        return None
+    creds = Credentials.from_authorized_user_file(str(ARQUIVO_TOKEN), ESCOPOS)
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        _salvar_token(creds)
+    if creds and creds.valid:
+        return creds
+    return None
+
+
+def autenticar() -&gt; dict:
+    &quot;&quot;&quot;
+    Abre o Chrome, o aluno escolhe o Gmail e autoriza. Rode uma vez:
+
+        python -c &quot;from app.tools.calendario_google import autenticar; print(autenticar())&quot;
+    &quot;&quot;&quot;
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    keys = _credenciais_oauth()
+    if not keys:
+        return {
+            &quot;status&quot;: &quot;error&quot;,
+            &quot;message&quot;: &quot;Falta gcp-oauth.keys.json na raiz do projeto (o professor distribui).&quot;,
+        }
+    flow = InstalledAppFlow.from_client_secrets_file(keys, ESCOPOS)
+    creds = flow.run_local_server(port=0, prompt=&quot;consent&quot;)
+    _salvar_token(creds)
+    return {&quot;status&quot;: &quot;ok&quot;, &quot;arquivo&quot;: str(ARQUIVO_TOKEN)}
+
+
+def _access_token() -&gt; Optional[str]:
+    if GOOGLE_CALENDAR_ACCESS_TOKEN:
+        return GOOGLE_CALENDAR_ACCESS_TOKEN
+    creds = _carregar_token()
+    return creds.token if creds else None
+
+
+def _resultado_mcp(result: Any) -&gt; dict:
+    if getattr(result, &quot;structured_content&quot;, None):
+        data = result.structured_content
+        return data if isinstance(data, dict) else {&quot;status&quot;: &quot;ok&quot;, &quot;result&quot;: data}
+    textos = []
+    for bloco in getattr(result, &quot;content&quot;, []) or []:
+        texto = getattr(bloco, &quot;text&quot;, None)
+        if texto:
+            textos.append(texto)
+    if not textos:
+        return {&quot;status&quot;: &quot;error&quot;, &quot;message&quot;: &quot;O servidor MCP não devolveu conteúdo.&quot;}
+    bruto = textos[0]
+    try:
+        return json.loads(bruto)
+    except json.JSONDecodeError:
+        return {&quot;status&quot;: &quot;ok&quot;, &quot;result&quot;: bruto}
+
+
+def _erro_mcp(result: Any) -&gt; dict:
+    conteudo = _resultado_mcp(result)
+    if isinstance(conteudo, dict):
+        mensagem = conteudo.get(&quot;result&quot;) or conteudo.get(&quot;message&quot;) or conteudo
+    else:
+        mensagem = conteudo
+    return {
+        &quot;status&quot;: &quot;error&quot;,
+        &quot;message&quot;: mensagem if isinstance(mensagem, str) else str(mensagem),
+    }
+
+
+def _motivo(erro: BaseException) -&gt; str:
+    if isinstance(erro, BaseExceptionGroup):
+        return &quot; | &quot;.join(_motivo(sub) for sub in erro.exceptions)
+    texto = str(erro).strip()
+    return f&quot;{type(erro).__name__}: {texto}&quot; if texto else type(erro).__name__
+
+
+async def _chamar_via_http(nome: str, argumentos: dict) -&gt; dict:
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+    from mcp.shared._httpx_utils import create_mcp_http_client
+
+    token = _access_token()
+    if not token:
+        return {
+            &quot;status&quot;: &quot;error&quot;,
+            &quot;message&quot;: (
+                &quot;Sem token do Google Calendar. Rode no terminal: &quot;
+                &#x27;python -c &quot;from app.tools.calendario_google import autenticar; print(autenticar())&quot;&#x27;
+            ),
+        }
+
+    client = create_mcp_http_client()
+    client.headers[&quot;Authorization&quot;] = f&quot;Bearer {token}&quot;
+
+    async with client:
+        async with streamable_http_client(GOOGLE_CALENDAR_MCP_URL, http_client=client) as streams:
+            read, write = streams[0], streams[1]
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(nome, argumentos)
+                if getattr(result, &quot;is_error&quot;, False):
+                    return _erro_mcp(result)
+                return _resultado_mcp(result)
+
+
+def _executar(coro_factory) -&gt; dict:
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(coro_factory())).result()
+
+
+def _criar_via_rest(payload: dict) -&gt; dict:
+    &quot;&quot;&quot;
+    Grava o evento na Calendar API (Python + HTTP) com o mesmo token OAuth.
+
+    O MCP oficial (calendarmcp.googleapis.com) devolve 403 se o serviço MCP
+    não estiver ligado no Cloud. A Calendar API (calendar-json) já está.
+    &quot;&quot;&quot;
+    import httpx
+
+    token = _access_token()
+    if not token:
+        return {
+            &quot;status&quot;: &quot;error&quot;,
+            &quot;message&quot;: (
+                &quot;Sem token do Google Calendar. Rode: &quot;
+                &#x27;python -c &quot;from app.tools.calendario_google import autenticar; print(autenticar())&quot;&#x27;
+            ),
+        }
+
+    corpo = {
+        &quot;summary&quot;: payload[&quot;summary&quot;],
+        &quot;start&quot;: {
+            &quot;dateTime&quot;: payload[&quot;startTime&quot;],
+            &quot;timeZone&quot;: payload.get(&quot;timeZone&quot;, &quot;America/Sao_Paulo&quot;),
+        },
+        &quot;end&quot;: {
+            &quot;dateTime&quot;: payload[&quot;endTime&quot;],
+            &quot;timeZone&quot;: payload.get(&quot;timeZone&quot;, &quot;America/Sao_Paulo&quot;),
+        },
+    }
+    if payload.get(&quot;location&quot;):
+        corpo[&quot;location&quot;] = payload[&quot;location&quot;]
+    if payload.get(&quot;description&quot;):
+        corpo[&quot;description&quot;] = payload[&quot;description&quot;]
+
+    resposta = httpx.post(
+        &quot;https://www.googleapis.com/calendar/v3/calendars/primary/events&quot;,
+        headers={&quot;Authorization&quot;: f&quot;Bearer {token}&quot;, &quot;content-type&quot;: &quot;application/json&quot;},
+        json=corpo,
+        timeout=30,
+    )
+    data = resposta.json()
+    if resposta.status_code &gt;= 400:
+        return {
+            &quot;status&quot;: &quot;error&quot;,
+            &quot;message&quot;: data.get(&quot;error&quot;, {}).get(&quot;message&quot;) or str(data),
+        }
+    return {
+        &quot;status&quot;: &quot;ok&quot;,
+        &quot;id&quot;: data.get(&quot;id&quot;),
+        &quot;titulo&quot;: data.get(&quot;summary&quot;),
+        &quot;inicio&quot;: (data.get(&quot;start&quot;) or {}).get(&quot;dateTime&quot;),
+        &quot;link&quot;: data.get(&quot;htmlLink&quot;),
+    }
+
+
+def chamar_google_calendar(nome_tool: str, argumentos: dict) -&gt; dict:
+    &quot;&quot;&quot;
+    Tenta o MCP oficial. Se o serviço MCP não estiver habilitado no Cloud
+    (403 típico da aula), grava pela Calendar API com o mesmo token.
+    &quot;&quot;&quot;
+    try:
+        mcp = _executar(lambda: _chamar_via_http(nome_tool, argumentos))
+    except BaseException as e:
+        mcp = {&quot;status&quot;: &quot;error&quot;, &quot;message&quot;: _motivo(e)}
+
+    texto = str(mcp.get(&quot;message&quot;) or &quot;&quot;)
+    if mcp.get(&quot;status&quot;) != &quot;error&quot;:
+        return mcp
+    if &quot;Calendar MCP API has not been used&quot; in texto or &quot;calendarmcp.googleapis.com&quot; in texto or &quot;Server returned an error&quot; in texto:
+        return _criar_via_rest(argumentos)
+    return mcp
+
+
+def listar_tools_google() -&gt; dict:
+    &quot;&quot;&quot;tools/list no MCP oficial — sem token. É o catálogo, não os dados.&quot;&quot;&quot;
+    import httpx
+
+    resposta = httpx.post(
+        GOOGLE_CALENDAR_MCP_URL,
+        headers=CABECALHOS_MCP,
+        json={&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/list&quot;},
+        timeout=30,
+    )
+    return resposta.json()
+
+
+def _fim_padrao(start_time: str) -&gt; str:
+    try:
+        return (datetime.fromisoformat(start_time) + timedelta(hours=1)).isoformat()
+    except ValueError:
+        return start_time
+
+
+class AddGoogleEventArgs(BaseModel):
+    title: str = Field(..., description=&quot;Título do evento no Google Calendar.&quot;)
+    start_time: str = Field(..., description=&quot;Início em ISO 8601 (ex.: 2026-09-18T15:00:00-03:00).&quot;)
+    end_time: Optional[str] = Field(
+        default=None,
+        description=&quot;Fim em ISO 8601. Se omitido, usa 1 hora depois do início.&quot;,
+    )
+    location: Optional[str] = Field(default=None, description=&quot;Local.&quot;)
+    description: Optional[str] = Field(default=None, description=&quot;Descrição / notas.&quot;)
+
+
+@tool(&quot;add_google_event&quot;, args_schema=AddGoogleEventArgs)
+def add_google_event(
+    title: str,
+    start_time: str,
+    end_time: Optional[str] = None,
+    location: Optional[str] = None,
+    description: Optional[str] = None,
+) -&gt; dict:
+    &quot;&quot;&quot;
+    Cria o compromisso no Google Calendar da conta autenticada, via MCP oficial
+    da Google (HTTP). NÃO grava no Postgres — isso é papel da tool add_event.
+    Ao marcar um evento novo, chame as DUAS: primeiro add_event, depois esta.
+    &quot;&quot;&quot;
+    fim = end_time or _fim_padrao(start_time)
+    payload: dict[str, Any] = {
+        &quot;summary&quot;: title,
+        &quot;startTime&quot;: start_time,
+        &quot;endTime&quot;: fim,
+        &quot;timeZone&quot;: &quot;America/Sao_Paulo&quot;,
+    }
+    if location:
+        payload[&quot;location&quot;] = location
+    if description:
+        payload[&quot;description&quot;] = description
+
+    bruto = chamar_google_calendar(&quot;create_event&quot;, payload)
+    if bruto.get(&quot;status&quot;) == &quot;ok&quot; and bruto.get(&quot;id&quot;):
+        return {
+            &quot;status&quot;: &quot;ok&quot;,
+            &quot;id&quot;: bruto[&quot;id&quot;],
+            &quot;titulo&quot;: bruto.get(&quot;titulo&quot;) or title,
+            &quot;inicio&quot;: bruto.get(&quot;inicio&quot;) or start_time,
+            &quot;link&quot;: bruto.get(&quot;link&quot;),
+        }
+    evento = bruto.get(&quot;event&quot;) if isinstance(bruto, dict) else None
+    if isinstance(evento, dict) and evento.get(&quot;id&quot;):
+        return {
+            &quot;status&quot;: &quot;ok&quot;,
+            &quot;id&quot;: evento[&quot;id&quot;],
+            &quot;titulo&quot;: evento.get(&quot;summary&quot;),
+            &quot;inicio&quot;: (evento.get(&quot;start&quot;) or {}).get(&quot;dateTime&quot;) or evento.get(&quot;start&quot;),
+            &quot;link&quot;: evento.get(&quot;htmlLink&quot;) or evento.get(&quot;html_link&quot;),
+        }
+    return bruto
+
+
+TOOLS_GOOGLE = [add_google_event]</div>
+  </div>
+  <div class="callout co-ok">
+    <div class="ct">Teste o arquivo sem nem ter OAuth</div>
+    <p>A função <code>listar_tools_google()</code> está lá justamente para isso — é o <code>tools/list</code> da aula, agora em Python:</p>
+  </div>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">terminal — prova que o cliente fala com a Google</span>
+      <div class="code-right"><span class="lbadge">teste</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">python -c <span class="s">"from app.tools.calendario_google import listar_tools_google; print([t['name'] for t in listar_tools_google()['result']['tools']])"</span>
+
+<span class="c"># ['list_events', 'get_event', 'list_calendars', 'suggest_time', 'create_event',</span>
+<span class="c">#  'update_event', 'delete_event', 'respond_to_event', 'search_events']</span>
+</div>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="graph.py: a terceira tool">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-b">bloco B · grafo</div>
+  <div class="step-marker">
+    <div class="step-num b">5</div>
+    <div class="step-meta">
+      <div class="step-file">app/graph.py</div>
+      <div class="step-obj">duas linhas: importar e somar na lista de tools</div>
+    </div>
+  </div>
+  <p class="lead">O agente de agenda passa a ter três tools. Nenhum nó novo, nenhuma aresta nova — o <code class="inline">create_agent</code> só recebe uma lista maior.</p>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">app/graph.py — o agente de agenda ganha a terceira tool</span>
+      <div class="code-right"><span class="lbadge">duas linhas</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code"><span class="k">from</span> app.tools.agenda <span class="k">import</span> TOOLS_AGENDA
+<span class="k">from</span> app.tools.calendario_google <span class="k">import</span> TOOLS_GOOGLE
+
+agenda_app = create_agent(
+    model=llm_especialista,
+    tools=TOOLS_AGENDA + TOOLS_GOOGLE + TOOLS_MEMORIA,
+    system_prompt=AGENDA_PROMPT_COMPLETO,
+)
+</div>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">Sem autenticar() a tool existe, mas falha alto</div>
+    <p>De propósito. Sem <code>gcp-oauth.keys.json</code> + <code>google-calendar.token.json</code>, o <code>add_google_event</code> devolve erro e o Postgres já pode ter gravado. Não silencie. O próximo slide é o login.</p>
+  </div>
+  <div class="callout co-info">
+    <div class="ct">Repare no que NÃO mudou</div>
+    <p>O grafo não sabe que existe MCP. Para ele, <code>add_google_event</code> é uma <code>@tool</code> como qualquer outra — mesma assinatura, mesmo retorno dict. O protocolo está inteiramente <strong style="color:var(--text)">dentro</strong> da tool. É isso que faz trocar o servidor amanhã custar um arquivo, não uma refatoração.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="Na sua máquina">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-c">bloco B · roteiro do aluno</div>
+  <h2 class="sec-title">Cada um testa no <span style="color:var(--green)">próprio</span> notebook</h2>
+  <p class="lead">O Cloud já está feito. Vocês colam o código, instalam uma lib Python e autenticam. <strong style="color:var(--text)">Não precisa de Node.</strong></p>
+  <div class="ciclo" style="margin-bottom:16px;">
+    <div class="ci-step ci-a"><span class="ci-n">1</span><span class="ci-t">JSON + env</span>Salve <code>gcp-oauth.keys.json</code> na <strong>raiz</strong>. Acrescente as três variáveis no <code>.env</code> e no <code>config.py</code>. Não <code>.json.json</code>.</div>
+    <div class="ci-step ci-b"><span class="ci-n">2</span><span class="ci-t">Login</span><code>pip install google-auth-oauthlib</code> e o comando abaixo. O Chrome abre. Escolha <em>o seu</em> Gmail.</div>
+    <div class="ci-step ci-c"><span class="ci-n">3</span><span class="ci-t">Código</span>Cole <code>calendario_google.py</code>, some <code>TOOLS_GOOGLE</code> no <code>graph.py</code>, reinicie o uvicorn. Marque um evento no chat.</div>
+  </div>
+  <div class="code-wrap">
+    <div class="code-header" onclick="toggleCode(this)">
+      <span class="fname">terminal — na raiz do projeto, uma vez</span>
+      <div class="code-right"><span class="lbadge">auth Python</span><button class="copy-btn" onclick="copyCode(event, this)">Copiar</button><span class="code-toggle-btn">Clique para ver</span></div>
+    </div>
+    <div class="code">pip install google-auth-oauthlib
+python -c "from app.tools.calendario_google import autenticar; print(autenticar())"
+</div>
+  </div>
+  <div class="callout co-ok">
+    <div class="ct">Quando deu certo</div>
+    <p>O terminal devolve <code>{"status": "ok", "arquivo": "...google-calendar.token.json"}</code>. Esse arquivo é o token da <em>sua</em> conta. Daí o <code>add_google_event</code> usa sozinho.</p>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">Tela “O Google não verificou este app”</div>
+    <p>Esperado: o app está em modo Testing. Clique em <strong style="color:var(--text)">Avançado</strong> e depois em <strong style="color:var(--text)">Acessar Assessor Agenda (não seguro)</strong>. Se vier <code>403 access_denied</code>, o Gmail de vocês ainda não está em Test users — avisem o professor, não recriem projeto.</p>
+  </div>
+  <div class="callout co-err">
+    <div class="ct">Não commitar JSON nem token</div>
+    <p>O <code>.gitignore</code> já cobre <code>gcp-oauth.keys.json</code> e <code>google-calendar.token.json</code>. O arquivo do professor é o RG do app; o token na raiz do seu projeto é a chave do <em>seu</em> calendário.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="Teste duplo">
+<div class="slide-inner slide-scroll">
+  <div class="bloco-mark bl-c">bloco B · teste</div>
+  <h2 class="sec-title">A prova: banco <span style="color:var(--green)">e</span> calendário</h2>
+  <div class="test-box">
+    <div class="tt">▸ Depois do login Google</div>
+    <table class="qa">
+      <thead><tr><th>#</th><th>O que você pergunta</th><th>Resposta esperada</th></tr></thead>
+      <tbody>
+        <tr><td class="n">1</td><td><span class="voce">marca almoço com a turma sexta às 12h no pátio</span></td><td>Chama <code>add_event</code> <strong>e</strong> <code>add_google_event</code>. Confira o Postgres e o calendar.google.com da conta.</td></tr>
+        <tr><td class="n">2</td><td><span class="voce">o que eu tenho sexta?</span></td><td><span class="ok">query_events</span> no banco — o almoço está lá, mesmo se o Google tiver falhado.</td></tr>
+        <tr><td class="n">3</td><td>Abra calendar.google.com</td><td><span class="ok">O mesmo título no horário</span> — senão só o MCP cliente falhou; o INSERT local valeu.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-warn">
+    <div class="ct">Se o Google recusar e o banco gravar</div>
+    <p>A aula deu certo pela metade: vocês distinguiram as duas portas. Confiram se o <code>autenticar()</code> terminou, se o JSON está na raiz (não <code>.json.json</code>) e se o Gmail está em Test users. Se repetir o mesmo horário, apaguem o extra no calendar.google.com.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="O que mudou no projeto">
+<div class="slide-inner slide-scroll">
+  <span class="gtag">síntese</span>
+  <h2 class="sec-title">Arquivos desta <span style="color:var(--cyan)">etapa</span></h2>
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;">
+    <table class="tbl">
+      <thead><tr><th>Arquivo</th><th>Papel</th></tr></thead>
+      <tbody>
+        <tr class="sep-a"><td><code>app/tools/agenda.py</code></td><td>Aluno cola o arquivo: add_event + query_events</td></tr>
+        <tr class="sep-a"><td><code>app/prompts.py</code></td><td><strong>Sem isto o bloco A não funciona.</strong> Seção GRAVAÇÃO, campo <code>escrita</code> e os shots 1–3 reescritos com as tool calls</td></tr>
+        <tr class="sep-a"><td><code>app/mcp_server.py</code></td><td>As duas tools também no servidor MCP (Cursor testa consulta sem o chat)</td></tr>
+        <tr class="sep-b"><td><code>.env</code> + <code>app/config.py</code></td><td>Três variáveis novas. Só o config lê o <code>.env</code>; o cliente importa de lá.</td></tr>
+        <tr class="sep-b"><td><code>app/tools/calendario_google.py</code></td><td>Arquivo novo · OAuth Python + MCP oficial / Calendar API · <code>add_google_event</code></td></tr>
+        <tr class="sep-b"><td><code>app/graph.py</code></td><td>TOOLS_AGENDA + TOOLS_GOOGLE + memória</td></tr>
+        <tr class="sep-c"><td><code>gcp-oauth.keys.json</code></td><td>RG do app (o professor distribui). Não versionar. Login é o Gmail de cada um.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout co-ok">
+    <div class="ct">Intocado de propósito</div>
+    <p><code>financeiro.py</code>, o chat HTTP, o frontend. A camada de domínio da agenda cresce; a de apresentação não precisa saber que existe Google.</p>
+  </div>
+</div>
+</div>
+
+<div class="slide" data-title="Conferência final">
+<div class="slide-inner slide-scroll">
+  <span class="gtag">checkpoint</span>
+  <h2 class="sec-title">Conferência <span style="color:var(--green)">final</span></h2>
+  <div class="final-check" id="final-checklist">
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">1 · Colei agenda.py inteiro (add_event + query_events)</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">2 · Apliquei as mudanças no prompts.py (GRAVAÇÃO + escrita + shots)</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">3 · “o que eu tenho na agenda?” chama query_events</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">4 · Marquei um evento e CONFERI NO BANCO que o id existe</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">5 · Sei o fluxo de um produto: JWT + token por usuário no servidor</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">6 · Sei que o Cloud é do professor e o JSON é o RG do app</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">7 · Rodei o tools/list em Python e vi o create_event no catálogo</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">8 · Pus as três variáveis no .env e no config.py (sem getenv no cliente)</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">9 · Colei calendario_google.py e somei TOOLS_GOOGLE no graph.py</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">10 · Rodei autenticar() em Python e o evento apareceu no MEU calendar</div></div>
+    <div class="fc-item"><div class="fc-check">✓</div><div class="fc-text">11 · Se o Google falha, o banco permanece e a resposta admite</div></div>
+  </div>
+  <div class="divider"></div>
+  <div class="bridge">
+    <h3 class="slide-h3" style="margin-bottom:10px;">Vocês fecharam o ciclo MCP</h3>
+    <p style="color:var(--muted);font-size:.88rem;line-height:1.7;margin-bottom:14px;">Servidor (banco → Cursor) na 5. Cliente (Assessor → calendário Google) na 5.2. No produto: HTTP + token por usuário no servidor. Na aula: OAuth Python no notebook. Sem Node.</p>
+    <div class="next-pills">
+      <div class="next-pill">servidor MCP</div>
+      <div class="next-pill">cliente MCP</div>
+      <div class="next-pill">só Python</div>
+      <div class="next-pill">máquina = usuário</div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<script>
+// ══════════════════════════ BG CANVAS ══════════════════════════
+const bgCanvas = document.getElementById('bg');
+const bgCtx = bgCanvas.getContext('2d');
+let BW, BH, nodes = [];
+function resizeBg() { BW = bgCanvas.width = window.innerWidth; BH = bgCanvas.height = window.innerHeight; }
+resizeBg(); window.addEventListener('resize', () => { resizeBg(); initNodes(); });
+function initNodes() {
+  nodes = [];
+  const n = Math.floor((BW * BH) / 18000);
+  for (let i = 0; i < n; i++) nodes.push({ x:Math.random()*BW, y:Math.random()*BH, vx:(Math.random()-.5)*.4, vy:(Math.random()-.5)*.4, r:Math.random()*2+1 });
+}
+initNodes();
+function drawBg() {
+  bgCtx.clearRect(0, 0, BW, BH);
+  nodes.forEach(n => { n.x += n.vx; n.y += n.vy; if(n.x<0||n.x>BW)n.vx*=-1; if(n.y<0||n.y>BH)n.vy*=-1; });
+  for (let i = 0; i < nodes.length; i++) for (let j = i+1; j < nodes.length; j++) {
+    const dx=nodes[i].x-nodes[j].x, dy=nodes[i].y-nodes[j].y, d=Math.sqrt(dx*dx+dy*dy);
+    if (d < 120) { bgCtx.beginPath(); bgCtx.moveTo(nodes[i].x,nodes[i].y); bgCtx.lineTo(nodes[j].x,nodes[j].y); bgCtx.strokeStyle=`rgba(124,58,237,${.15*(1-d/120)})`; bgCtx.lineWidth=.5; bgCtx.stroke(); }
+  }
+  nodes.forEach(n => { bgCtx.beginPath(); bgCtx.arc(n.x,n.y,n.r,0,Math.PI*2); bgCtx.fillStyle='rgba(0,229,255,.5)'; bgCtx.fill(); });
+  requestAnimationFrame(drawBg);
+}
+drawBg();
+
+// ══════════════════════════ SLIDE ENGINE ══════════════════════════
+const slideEls = Array.from(document.querySelectorAll('.slide'));
+const TOTAL = slideEls.length;
+let current = 0;
+let maxReached = 0;
+
+const progressBar = document.getElementById('progress-bar');
+const counter     = document.getElementById('slide-counter');
+const titleBar    = document.getElementById('slide-title-bar');
+const navPrev     = document.getElementById('nav-prev');
+const navNext     = document.getElementById('nav-next');
+const dotsEl      = document.getElementById('dots');
+
+slideEls.forEach((_, i) => {
+  const d = document.createElement('div'); d.className = 'dot'; d.onclick = () => goTo(i);
+  dotsEl.appendChild(d);
+});
+
+function goTo(n) {
+  if (n < 0 || n >= TOTAL) return;
+  slideEls.forEach((s, i) => {
+    s.classList.remove('active', 'prev');
+    if (i < n) s.classList.add('prev');
+  });
+  slideEls[n].classList.add('active');
+  current = n;
+  if (n > maxReached) maxReached = n;
+  updateUI();
+  onSlideEnter(current);
+}
+
+function updateUI() {
+  progressBar.style.width = ((current + 1) / TOTAL * 100) + '%';
+  counter.textContent = `${current + 1} / ${TOTAL}`;
+  titleBar.textContent = slideEls[current].dataset.title || '';
+  navPrev.classList.toggle('disabled', current === 0);
+  navNext.classList.toggle('disabled', current === TOTAL - 1);
+  document.querySelectorAll('.dot').forEach((d,i) => {
+    d.classList.toggle('active', i === current);
+    d.classList.toggle('done', i < current);
+  });
+}
+
+navPrev.onclick = () => goTo(current - 1);
+navNext.onclick = () => goTo(current + 1);
+document.addEventListener('keydown', e => {
+  if (e.target.closest('.code')) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goTo(current + 1);
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   goTo(current - 1);
+});
+requestAnimationFrame(() => goTo(0));
+
+function onSlideEnter(n) {
+  const title = slideEls[n].dataset.title;
+  if (title === 'Conferência final') {
+    const el = document.getElementById('final-checklist');
+    el.classList.remove('play');
+    void el.offsetWidth;
+    el.classList.add('play');
+  }
+}
+
+// ══════════════════════════ CÓDIGO ESCONDIDO ══════════════════════════
+function toggleCode(header) {
+  const wrap = header.parentElement;
+  const open = wrap.classList.toggle('open');
+  const btn = header.querySelector('.code-toggle-btn');
+  if (btn) btn.textContent = open ? 'Ocultar' : 'Clique para ver';
+}
+
+// ══════════════════════════ COPIAR CÓDIGO ══════════════════════════
+function copyCode(evento, botao) {
+  evento.stopPropagation();
+  const wrap = botao.closest('.code-wrap');
+  const texto = wrap.querySelector('.code').textContent;
+
+  const feedback = (ok) => {
+    botao.textContent = ok ? '✓ Copiado' : 'Falhou';
+    botao.classList.toggle('done', ok);
+    setTimeout(() => { botao.textContent = 'Copiar'; botao.classList.remove('done'); }, 1800);
+  };
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(texto).then(() => feedback(true), () => feedback(false));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    feedback(ok);
+  }
+}
+</script>
+</body>
+</html>

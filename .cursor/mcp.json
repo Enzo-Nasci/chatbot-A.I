@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+      "assessor-financeiro": {
+        "command": "C:\\Program Files\\Python314\\python.exe",
+        "args": [
+          "...\\FASTAPIREPOSITORY\\app\\mcp_server.py"
+        ]
+      }
+    }
+  }
+  

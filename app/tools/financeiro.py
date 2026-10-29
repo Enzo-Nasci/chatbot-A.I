@@ -1,11 +1,17 @@
 from typing import List, Optional
 from langchain.tools import tool
 from pydantic import BaseModel, Field
+import json
+import logging
 import unicodedata
+import urllib.error
+import urllib.request
+
 from app.tools.db import get_conn
-
-get_conn()
-
+from app.vectordb import gerar_embedding, qdrant, COLLECTION_PREFERENCIAS
+from qdrant_client import models
+from bson import ObjectId
+from app.memoryMongo import col_perfil
 
 class AddTransactionArgs(BaseModel):
     amount: float = Field(..., description="Valor da transação (use positivo).")
@@ -16,12 +22,21 @@ class AddTransactionArgs(BaseModel):
     )
     type_id: Optional[int] = Field(default=None, description="ID em transaction_types (1=INCOME, 2=EXPENSES, 3=TRANSFER).")
     type_name: Optional[str] = Field(default=None, description="Nome do tipo: INCOME | EXPENSES | TRANSFER.")
-    category_name: Optional[str] = Field(default=None, description="""Nome da categoria 
-    ('comida', 'besteira', 'estudo', 'férias', 'transporte', 'moradia', 'saúde', 'lazer', 'contas', 'investimento', 'presente' caso não for nenhuma dessas categorias, use 'outro'); 
-    será resolvida para category_id (optional).")
+    
+    category_name: Optional[str] = Field(
+        default=None, 
+        description="Nome da categoria ('comida', 'besteira', 'estudo', 'férias', 'transporte', 'moradia', 'saúde', 'lazer', 'contas', 'investimento', 'presente', caso não for nenhuma dessas categorias, use 'outro'); será resolvida para category_id (optional)."
+    )
+    
     category_id: Optional[int] = Field(default=None, description="FK de categories (opcional).")
     description: Optional[str] = Field(default=None, description="Descrição (opcional).")
-    payment_method: Optional[str] = Field(default=None, description="Forma de pagamento (opcional).""")
+    payment_method: Optional[str] = Field(default=None, description="Forma de pagamento (opcional).")
+    currency: Optional[str] = Field(
+        default="BRL",
+        description="Moeda do amount informado pelo usuário. Use BRL se for real. "
+                    "Se for outra (dólar, euro, bitcoin etc.), envie o código ISO "
+                    "(USD, EUR, BTC, GBP...) — a tool converte para reais via AwesomeAPI.",
+    )
 
 class QueryTransactionsArgs(BaseModel):
     query: str = Field(..., description="Texto em source_text ou description para buscar (case-insensitive, parcial).")
@@ -30,9 +45,23 @@ class QueryTransactionsArgs(BaseModel):
 
 TYPE_ALIASES = {
     "INCOME": "INCOME", "ENTRADA": "INCOME", "RECEITA": "INCOME", "SALARIO": "INCOME",
-    "EXPENSES": "EXPENSES", "EXXPENSE": "EXPENSES", "DESPESA": "EXPENSES", "GASTO": "EXPENSES",
-    "TRANSFER": "TRANSFER", "TRANSFERENCIA": "TRANSFER", "TRANSFERENCIA": "TRANSFER"
+    "EXPENSES": "EXPENSES", "EXPENSE": "EXPENSES", "DESPESA": "EXPENSES", "GASTO": "EXPENSES",
+    "TRANSFER": "TRANSFER", "TRANSFERENCIA": "TRANSFER"
 }
+
+AWESOME_API_LAST = "https://economia.awesomeapi.com.br/json/last/{par}"
+
+MOEDA_ALIASES = {
+    "BRL": "BRL", "REAL": "BRL", "REAIS": "BRL", "R$": "BRL",
+    "USD": "USD", "DOLAR": "USD", "DOLARES": "USD", "DOLLAR": "USD", "DOLLARS": "USD",
+    "EUR": "EUR", "EURO": "EUR", "EUROS": "EUR",
+    "GBP": "GBP", "LIBRA": "GBP", "LIBRAS": "GBP",
+    "JPY": "JPY", "IENE": "JPY", "IENES": "JPY",
+    "ARS": "ARS", "CAD": "CAD", "AUD": "AUD", "CHF": "CHF",
+    "CNY": "CNY", "YUAN": "CNY",
+    "BTC": "BTC", "BITCOIN": "BTC",
+}
+
 
 def _normalize_text(s: str) -> str:
     s = s.strip().lower()
@@ -43,8 +72,7 @@ def _normalize_text(s: str) -> str:
 def _resolve_type_id(cur, type_id: Optional[int], type_name: Optional[str]) -> Optional[int]:
     if type_name:
         t = type_name.strip().upper()
-        if t == "EXPENSE":
-            t = "EXPENSES"
+        t = TYPE_ALIASES.get(t, t)
         cur.execute("SELECT id FROM transaction_types WHERE UPPER(type)=%s LIMIT 1;", (t,))
         row = cur.fetchone()
         return row[0] if row else None
@@ -74,6 +102,58 @@ def _resolve_category_id(cur, category_id: Optional[int], category_name: Optiona
             return by_name["outros"]
 
     return None
+
+
+def _codigo_moeda(currency: Optional[str]) -> str:
+    if not currency:
+        return "BRL"
+    chave = _normalize_text(currency).upper().replace(" ", "")
+    return MOEDA_ALIASES.get(chave, chave)
+
+
+def _converter_para_brl(amount: float, currency: Optional[str]) -> dict:
+    """Converte amount para BRL pela última cotação da AwesomeAPI (par MOEDA-BRL)."""
+    codigo = _codigo_moeda(currency)
+    origem = float(amount)
+    if codigo == "BRL":
+        return {
+            "ok": True,
+            "amount_brl": origem,
+            "amount_origem": origem,
+            "moeda_origem": "BRL",
+            "cotacao": 1.0,
+        }
+
+    par = f"{codigo}-BRL"
+    url = AWESOME_API_LAST.format(par=par)
+    try:
+        pedido = urllib.request.Request(url, headers={"User-Agent": "AssessorAI/1.0"})
+        with urllib.request.urlopen(pedido, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detalhe = exc.read().decode("utf-8", errors="replace")
+        return {
+            "ok": False,
+            "message": f"Moeda não encontrada na cotação ({par}): {detalhe}",
+        }
+    except Exception as exc:
+        return {"ok": False, "message": f"Falha ao consultar cotação AwesomeAPI: {exc}"}
+
+    cotacao = payload.get(f"{codigo}BRL") or next(iter(payload.values()), None)
+    if not cotacao or "bid" not in cotacao:
+        return {"ok": False, "message": f"Cotação {par} sem dados de compra (bid)."}
+
+    taxa = float(cotacao["bid"])
+    return {
+        "ok": True,
+        "amount_brl": round(origem * taxa, 2),
+        "amount_origem": origem,
+        "moeda_origem": codigo,
+        "cotacao": taxa,
+        "par": cotacao.get("name") or par,
+        "atualizado_em": cotacao.get("create_date"),
+    }
+
 
 @tool("search_transactions", args_schema=QueryTransactionsArgs)
 def search_transactions(query: str, limit: Optional[int] = 10) -> dict:
@@ -126,8 +206,11 @@ def search_transactions(query: str, limit: Optional[int] = 10) -> dict:
         return {"status": "error", "message": str(e)}
 
     finally:
-        cur.close()
-        conn.close()
+        try:
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logging.error(f"Erro ao fechar conexão no search_transactions: {e}")
 
 @tool("saldo_total")
 def saldo_total() -> dict:
@@ -158,8 +241,11 @@ def saldo_total() -> dict:
         return {"status": "error", "message": str(e)}
 
     finally:
-        cur.close()
-        conn.close()
+        try:
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logging.error(f"Erro ao fechar conexão no saldo_total: {e}")
 
 @tool("saldo_diario")
 def saldo_diario() -> dict:
@@ -191,11 +277,13 @@ def saldo_diario() -> dict:
         return {"status": "error", "message": str(e)}
 
     finally:
-        cur.close()
-        conn.close()
+        try:
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logging.error(f"Erro ao fechar conexão no saldo_diario: {e}")
 
 
-# Tool: add_transaction
 @tool("add_transaction", args_schema=AddTransactionArgs)
 def add_transaction(
     amount: float,
@@ -207,8 +295,14 @@ def add_transaction(
     category_id: Optional[int] = None,
     description: Optional[str] = None,
     payment_method: Optional[str] = None,
+    currency: Optional[str] = "BRL",
 ) -> dict:
-    """Insere uma transação financeira no banco de dados Postgres.""" 
+    """Insere uma transação no Postgres. amount na moeda informada; se não for BRL, converte pela AwesomeAPI e grava em reais."""
+    conversao = _converter_para_brl(amount, currency)
+    if not conversao.get("ok"):
+        return {"status": "error", "message": conversao.get("message", "Falha na conversão de moeda.")}
+
+    amount_brl = conversao["amount_brl"]
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -218,6 +312,7 @@ def add_transaction(
 
         if category_id is None:
             category_id = _resolve_category_id(cur, category_id=None, category_name=category_name)
+            
         if occurred_at:
             cur.execute(
                 """
@@ -227,7 +322,7 @@ def add_transaction(
                     (%s, %s, %s, %s, %s, %s::timestamptz, %s)
                 RETURNING id, occurred_at;
                 """,
-                (amount, resolved_type_id, category_id, description, payment_method, occurred_at, source_text),
+                (amount_brl, resolved_type_id, category_id, description, payment_method, occurred_at, source_text),
             )
         else:
             cur.execute(
@@ -238,12 +333,27 @@ def add_transaction(
                     (%s, %s, %s, %s, %s, NOW(), %s)
                 RETURNING id, occurred_at;
                 """,
-                (amount, resolved_type_id, category_id, description, payment_method, source_text),
+                (amount_brl, resolved_type_id, category_id, description, payment_method, source_text),
             )
 
         new_id, occurred = cur.fetchone()
         conn.commit()
-        return {"status": "ok", "id": new_id, "occurred_at": str(occurred)}
+        resultado = {
+            "status": "ok",
+            "id": new_id,
+            "occurred_at": str(occurred),
+            "amount": amount_brl,
+            "moeda": "BRL",
+        }
+        if conversao["moeda_origem"] != "BRL":
+            resultado.update({
+                "amount_original": conversao["amount_origem"],
+                "moeda_origem": conversao["moeda_origem"],
+                "cotacao": conversao["cotacao"],
+                "par": conversao.get("par"),
+                "cotacao_em": conversao.get("atualizado_em"),
+            })
+        return resultado
 
     except Exception as e:
         conn.rollback()
@@ -252,8 +362,8 @@ def add_transaction(
         try:
             cur.close()
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"Erro ao fechar conexão no add_transaction: {e}")
 
 def _local_date_filter_sql(field: str = "occurred_at") -> str:
     """
@@ -263,7 +373,6 @@ def _local_date_filter_sql(field: str = "occurred_at") -> str:
     return f"(({field} AT TIME ZONE 'America/Sao_Paulo')::date = %s::date)"
 
 
-# Tool: list_categories
 @tool("list_categories")
 def list_categories() -> dict:
     """Lista categorias disponíveis (id e nome)."""
@@ -290,8 +399,8 @@ def list_categories() -> dict:
         try:
             cur.close()
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"Erro ao fechar conexão no list_categories: {e}")
         
 class UpdateTransactionArgs(BaseModel):
     id: Optional[int] = Field(
@@ -343,13 +452,12 @@ def update_transaction(
     conn = get_conn()
     cur = conn.cursor()
     try:
-        # Resolve target_id
         target_id = id
         if target_id is None:
             if not match_text or not date_local:
                 return {"status": "error", "message": "Sem 'id': informe match_text E date_local para localizar o registro."}
 
-            # Buscar o mais recente no dia local informado que combine o texto
+            
             cur.execute(
                 f"""
                 SELECT t.id
@@ -369,10 +477,11 @@ def update_transaction(
         # Resolver type_id / category_id a partir de nomes, se fornecidos
         resolved_type_id = _resolve_type_id(cur, type_id, type_name) if (type_id or type_name) else None
         resolved_category_id = category_id
+        
         if category_name and not category_id:
-            resolved_category_id = _resolve_category_id(cur, category_name)
+            resolved_category_id = _resolve_category_id(cur, category_id=None, category_name=category_name)
 
-        # Montar SET dinâmico
+        
         sets = []
         params: List[object] = []
         if amount is not None:
@@ -406,7 +515,6 @@ def update_transaction(
         rows_affected = cur.rowcount
         conn.commit()
 
-        # Retornar o registro atualizado
         cur.execute(
             """
             SELECT
@@ -447,9 +555,49 @@ def update_transaction(
         try:
             cur.close()
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"Erro ao fechar conexão no update_transaction: {e}")
+
+def _serializar_perfil(doc: dict | None) -> dict | None:
+    if not doc:
+        return None
+    dados = dict(doc)
+    _id = dados.get("_id")
+    if isinstance(_id, ObjectId):
+        dados["_id"] = str(_id)
+    return dados
+
+
+@tool("buscar_preferencias_usuario")
+def buscar_preferencias_usuario(user_id: str) -> dict:
+    """Busca as preferências do usuário no Qdrant  e retorna as informações do usuário. O AGENTE NUNCA DEVE INSERIR O PARAMETRO user_id, POIS ELE É INJETADO PELO CONTEXTO DA REQUISIÇÃO WEB NO BACKEND."""
+    vetor = gerar_embedding(user_id)
+    resultados = qdrant.query_points(
+        collection_name=COLLECTION_PREFERENCIAS,
+        query=vetor,
+        query_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="user_id",
+                    match=models.MatchValue(value=user_id),
+                )
+            ]
+        ),
+        limit=1,
+    )
+    if not resultados.points:
+        return {"status": "ok", "preferencias": None}
+    return {"status": "ok", "preferencias": resultados.points[0].payload}
+
+@tool("buscar_perfil_usuario")
+def buscar_perfil_usuario(user_id: str) -> dict:
+    """Busca o perfil do usuário no MongoDB e retorna as informações do usuário. O AGENTE NUNCA DEVE INSERIR O PARAMETRO user_id, POIS ELE É INJETADO PELO CONTEXTO DA REQUISIÇÃO WEB NO BACKEND."""
+    perfil = _serializar_perfil(col_perfil.find_one({"user_id": user_id}))
+    if not perfil:
+        return {"status": "ok", "perfil": None}
+    return {"status": "ok", "perfil": perfil}
+
 
 
 # Exporta a lista de tools
-TOOLS = [list_categories, add_transaction, search_transactions, saldo_total, saldo_diario, update_transaction]
+TOOLS = [list_categories, add_transaction, search_transactions, saldo_total, saldo_diario, update_transaction, buscar_preferencias_usuario,buscar_perfil_usuario]

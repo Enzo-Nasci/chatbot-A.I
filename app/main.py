@@ -1,11 +1,12 @@
 from fastapi import FastAPI
-from app.routes import chat
-from app.config import validate_config, FRONTEND_DIR
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.config import validate_config, FRONTEND_DIR
+from app.routes import chat, monitor
+
 for _problem in validate_config():
-    print(f"[config] ATENTION: { _problem }")
+    print(f"[config] ATTENTION: { _problem }") # CORREÇÃO: Erro de digitação
 
 app = FastAPI(  
     title="Assessor IA",
@@ -23,6 +24,7 @@ def health_check() -> dict:
         }
 
 app.include_router(chat.router)
+app.include_router(monitor.router)
 
 
 app.add_middleware(
@@ -38,7 +40,7 @@ app.add_middleware(
 if (FRONTEND_DIR / "index.html").exists():
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 else:
-    @app.get("?", tags=["infra"])
+    @app.get("/", tags=["infra"])
     def raiz() -> dict:
         return{
             "mensagem": "API do assessor no ar. o frontend ainda n foi criado"
@@ -46,3 +48,5 @@ else:
 
 # Compatibilidade com clientes que usavam a grafia anterior.
 app.add_api_route("/healt", health_check, methods=["GET"], include_in_schema=False)
+
+
